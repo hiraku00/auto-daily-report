@@ -1,9 +1,6 @@
 import json
 import datetime
 import os
-import json
-import datetime
-import os
 import sys
 
 # Ensure src is in sys.path
@@ -33,7 +30,7 @@ def get_log_content(date_str):
 def generate_prompt():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     
-    print(f"Generating report prompt for {today}...\n")
+    print(f"{today} の日報プロンプトを生成しています...\n")
     
     # Get Calendar Events
     try:
@@ -52,31 +49,52 @@ def generate_prompt():
     if not log_content:
         log_content = "（ログファイルが見つかりません。まだ実行されていないか、ログがありません。）"
 
-    prompt = f"""
-以下の情報を元に、今日1日の活動報告（日報）をMarkdown形式で作成してください。
+    # Load Template
+    template_path = os.path.join(os.path.dirname(__file__), "templates", "report_prompt_template.txt")
+    try:
+        with open(template_path, "r", encoding="utf-8") as f:
+            template = f.read()
+    except FileNotFoundError:
+        print(f"Error: Template file not found at {template_path}")
+        return None
 
-# 依頼内容
-- 今日の作業ログとカレンダーの予定を照らし合わせ、実際に何に時間を使ったかを推測して要約してください。
-- プロジェクトごと、または作業カテゴリごとに時間を集計してください。
-- 予定されていた会議等の時間に、別の作業（SlackやVS Codeなど）をしていた場合は、その旨を指摘してください。
-
-# カレンダーの予定（今日のスケジュール）
-{events_text}
-
-# 作業ログ（1分ごとのサマリー）
-{log_content}
-"""
+    prompt = template.format(calendar_events=events_text, daily_logs=log_content)
 
     return prompt
 
 if __name__ == "__main__":
     prompt = generate_prompt()
     
+    if not prompt:
+        sys.exit(1)
+    
+    # Ensure outputs dir exists
+    OUTPUT_DIR = "outputs"
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
     # Save to a text file for easy copying
-    output_file = "daily_report_prompt.txt"
+    output_file = os.path.join(OUTPUT_DIR, "daily_report_prompt.txt")
     with open(output_file, "w", encoding="utf-8") as f:
         f.write(prompt)
         
-    print(f"Prompt saved to {output_file}")
-    print("\n--- Prompt Preview ---\n")
-    print(prompt[:500] + "\n...(truncated)...")
+    print(f"プロンプトを保存しました: {output_file}")
+    
+    # Ask user if they want to run automation
+    print("\n--- 自動送信 ---")
+    choice = input("Geminiにブラウザ経由で自動送信しますか？ (y/n): ").strip().lower()
+    
+    if choice == 'y':
+        print("ブラウザを起動しています...")
+        from src.gemini_automator import submit_to_gemini
+        
+        response = submit_to_gemini(prompt)
+        
+        report_filename = os.path.join(OUTPUT_DIR, f"daily_report_{datetime.datetime.now().strftime('%Y-%m-%d')}.md")
+        with open(report_filename, "w", encoding="utf-8") as f:
+            f.write(response)
+        
+        print(f"\n日報を保存しました: {report_filename}")
+    else:
+        print("\n--- プロンプトのプレビュー ---\n")
+        print(prompt[:500] + "\n...(省略)...")
+
