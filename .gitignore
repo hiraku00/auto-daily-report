@@ -27,14 +27,21 @@ venv/
 
 # Logs
 logs/
-*.log
 
 # Sensitive Info / Config
 credentials.json
 token.json
+
+# Daily Reports and Prompts
+outputs/
+!outputs/.keep
+*.log
 
 # Generated Reports
 daily_report_prompt.txt
 
 # OS
 .DS_Store
+
+# Playwright
+browser_data/

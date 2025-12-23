@@ -1,17 +1,18 @@
-# AI自動日報生成ツール (Mac用)
+# AI自動日報生成ツール (Auto Daily Report)
 
-Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作業ログを記録するツールです。Googleカレンダーの予定と合わせて、AI（ChatGPT等）に日報を書かせるためのプロンプトを生成します。
+Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作業ログを記録するツールです。Googleカレンダーの予定と合わせて、AI（Google Gemini）に日報を自動生成・投稿させることができます。
 
 ## 特徴
 - **自動記録**: 1分ごとに画面のテキストとアクティブなアプリ名を記録。
 - **プライバシー重視**: スクリーンショット画像は保存せず、テキスト情報のみをローカルに保存します。
 - **Googleカレンダー連携**: 今日の予定を取得し、作業ログとの乖離を確認できます。
-- **AI連携**: 蓄積したログから、ChatGPT等に投げるためのプロンプトを自動生成します。
+- **完全自動化**: 蓄積したログからプロンプトを生成し、ブラウザ（Gemini）を自動操作して日報を作成・保存します。
 
 ## 必要要件
 - macOS (Vision Frameworkを使用するため)
-- Python 3.x
+- Python 3.9以上
 - Google Cloud Project (Calendar API用)
+- Google Gemini アカウント
 
 ## セットアップ手順
 
@@ -21,6 +22,7 @@ Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作
 
 ```bash
 pip install -r requirements.txt
+playwright install chromium
 ```
 
 ### 2. GoogleカレンダーAPIの設定
@@ -44,31 +46,40 @@ Googleカレンダーの予定を取得するために、以下の設定が必�
 
 ## 使い方
 
-### 記録の開始
+### 記録の開始 (常駐プロセス)
 
-以下のコマンドでログの記録を開始します。終了等は `Ctrl+C` で行います。
+朝、業務を開始する際に以下のコマンドでログ記録を開始します。終了は `Ctrl+C` です。
 
 ```bash
 python main.py
 ```
 
-実行中は `logs/` ディレクトリに `daily_log_YYYY-MM-DD.jsonl` というJSONLファイルが生成され、1分ごとに追記されます。
+実行中は `logs/` ディレクトリに `daily_log_YYYY-MM-DD.jsonl` が生成され、1分ごとに追記されます。
 
-### 日報プロンプトの生成
+### 日報の生成 (業務終了時)
 
-1日の終わりに以下のコマンドを実行すると、その日のログとカレンダー予定をまとめたプロンプトが生成されます。
+1日の終わりに以下のコマンドを実行します。
 
 ```bash
 python daily_report.py
 ```
 
-実行後、`daily_report_prompt.txt` というファイルが生成されます。このファイルの中身をコピーして、ChatGPTやClaudeなどのAIチャットに貼り付けてください。
+1. 今日のログとカレンダー予定からプロンプトが生成されます。
+2. 「Geminiに自動送信しますか？」と聞かれるので `y` を入力します。
+3. ブラウザが自動起動し、Geminiにプロンプトが送信されます。
+   * **(初回のみ)** ログインが必要です。画面に従ってログインしてください。次回以降は自動ログインされます。
+4. 回答が生成されると自動的に保存され、`outputs/daily_report_YYYY-MM-DD.md` として出力されます。
 
 ## ファイル構成
 
-- `main.py`: 常駐してログを記録するメインスクリプト
-- `daily_report.py`: 日報用プロンプトを生成するスクリプト
-- `ocr_utils.py`: 画面キャプチャとOCR処理
-- `app_utils.py`: アクティブウィンドウ名の取得
-- `calendar_utils.py`: Googleカレンダー連携
-- `requirements.txt`: 依存ライブラリ一覧
+- `main.py`: ログ記録用スクリプト
+- `daily_report.py`: 日報生成・自動化スクリプト
+- `src/`: 
+    - `gemini_automator.py`: ブラウザ自動操作 (Playwright)
+    - `ocr_utils.py`: 画面OCR処理
+    - `app_utils.py`: アプリ名取得
+    - `calendar_utils.py`: カレンダー連携
+- `templates/`: プロンプトテンプレート
+- `outputs/`: 生成された日報の保存先
+- `logs/`: 作業ログ保存先
+- `browser_data/`: ブラウザプロファイル（Git管理外）
