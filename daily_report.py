@@ -27,7 +27,7 @@ def get_log_content(date_str):
     
     return "\n".join(log_lines)
 
-def generate_prompt():
+def generate_prompt_parts():
     today = datetime.datetime.now().strftime("%Y-%m-%d")
     
     print(f"{today} の日報プロンプトを生成しています...\n")
@@ -47,7 +47,7 @@ def generate_prompt():
     # Get Work Logs
     log_content = get_log_content(today)
     if not log_content:
-        log_content = "（ログファイルが見つかりません。まだ実行されていないか、ログがありません。）"
+        log_content = "（ログファイルが見つかりません。）"
 
     # Load Template
     template_path = os.path.join(os.path.dirname(__file__), "templates", "report_prompt_template.txt")
@@ -56,17 +56,23 @@ def generate_prompt():
             template = f.read()
     except FileNotFoundError:
         print(f"Error: Template file not found at {template_path}")
-        return None
+        return None, None
 
-    prompt = template.format(calendar_events=events_text, daily_logs=log_content)
-
-    return prompt
+    # Split template into instructions and data
+    parts = template.split("{daily_logs}")
+    instructions = parts[0].format(calendar_events=events_text)
+    
+    # We'll send these as two distinct pastes
+    return instructions, log_content
 
 if __name__ == "__main__":
-    prompt = generate_prompt()
+    instructions, logs = generate_prompt_parts()
     
-    if not prompt:
+    if not instructions:
         sys.exit(1)
+    
+    # For the local text file, we still save the full combined version for reference
+    full_prompt = instructions + "\n" + logs
     
     # Ensure outputs dir exists
     OUTPUT_DIR = "outputs"
@@ -75,19 +81,23 @@ if __name__ == "__main__":
     # Save to a text file for easy copying
     output_file = os.path.join(OUTPUT_DIR, "daily_report_prompt.txt")
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(prompt)
+        f.write(full_prompt)
         
     print(f"プロンプトを保存しました: {output_file}")
     
     # Ask user if they want to run automation
     print("\n--- 自動送信 ---")
-    choice = input("Geminiにブラウザ経由で自動送信しますか？ (y/n): ").strip().lower()
+    choice = input("Perplexityにブラウザ経由で自動送信しますか？ (y/n): ").strip().lower()
     
     if choice == 'y':
-        print("ブラウザを起動しています...")
-        from src.gemini_automator import submit_to_gemini
+        print("ブラウザを操作しています...")
+        from src.perplexity_automator import submit_to_perplexity
         
-        response = submit_to_gemini(prompt)
+        # Pass titled parts for better terminal feedback
+        response = submit_to_perplexity({
+            "指示とカレンダー": instructions,
+            "作業ログデータ": logs
+        })
         
         report_filename = os.path.join(OUTPUT_DIR, f"daily_report_{datetime.datetime.now().strftime('%Y-%m-%d')}.md")
         with open(report_filename, "w", encoding="utf-8") as f:
