@@ -1,18 +1,17 @@
-# AI自動日報生成ツール (Auto Daily Report)
-
-Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作業ログを記録するツールです。Googleカレンダーの予定と合わせて、AI（Google Gemini）に日報を自動生成・投稿させることができます。
+Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作業ログを記録するツールです。Googleカレンダーの予定と合わせて、AI（Perplexity AI）に日報を自動生成・投稿させることができます。
 
 ## 特徴
 - **自動記録**: 1分ごとに画面のテキストとアクティブなアプリ名を記録。
 - **プライバシー重視**: スクリーンショット画像は保存せず、テキスト情報のみをローカルに保存します。
 - **Googleカレンダー連携**: 今日の予定を取得し、作業ログとの乖離を確認できます。
-- **完全自動化**: 蓄積したログからプロンプトを生成し、ブラウザ（Gemini）を自動操作して日報を作成・保存します。
+- **完全自動化**: 蓄積したログからプロンプトを生成。ブラウザ（Brave）上のPerplexity AIを自動操作して日報を作成・保存します。
 
 ## 必要要件
 - macOS (Vision Frameworkを使用するため)
 - Python 3.9以上
 - Google Cloud Project (Calendar API用)
-- Google Gemini アカウント
+- Perplexity AI アカウント (Braveブラウザでのログインを推奨)
+- Brave ブラウザ
 
 ## セットアップ手順
 
@@ -22,7 +21,6 @@ Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作
 
 ```bash
 pip install -r requirements.txt
-playwright install chromium
 ```
 
 ### 2. GoogleカレンダーAPIの設定
@@ -65,21 +63,24 @@ python daily_report.py
 ```
 
 1. 今日のログとカレンダー予定からプロンプトが生成されます。
-2. 「Geminiに自動送信しますか？」と聞かれるので `y` を入力します。
-3. ブラウザが自動起動し、Geminiにプロンプトが送信されます。
-   * **(初回のみ)** ログインが必要です。画面に従ってログインしてください。次回以降は自動ログインされます。
-4. 回答が生成されると自動的に保存され、`outputs/daily_report_YYYY-MM-DD.md` として出力されます。
+2. 「Perplexityに自動送信しますか？」と聞かれるので `y` を入力します。
+3. ログイン済みのBraveブラウザが自動的にPerplexityを開きます。
+4. **(初回のみ)** ボタン位置（座標）の設定が必要です。画面の指示に従ってマウス位置を登録してください。
+    * これらの設定は `config/perplexity_coordinates.ini` に保存されます。
+5. プロンプトが自動的に入力（大規模データの場合は分割ペースト）され、検索が実行されます。
+6. 回答が生成（設定された待機時間経過後）されると自動的にコピー・保存され、`outputs/daily_report_YYYY-MM-DD.md` として出力されます。
 
 ## ファイル構成
 
 - `main.py`: ログ記録用スクリプト
 - `daily_report.py`: 日報生成・自動化スクリプト
 - `src/`: 
-    - `gemini_automator.py`: ブラウザ自動操作 (Playwright)
+    - `perplexity_automator.py`: ブラウザ自動操作 (pyautoguiによる座標操作)
     - `ocr_utils.py`: 画面OCR処理
     - `app_utils.py`: アプリ名取得
     - `calendar_utils.py`: カレンダー連携
+- `config/`: 
+    - `perplexity_coordinates.ini`: ボタン座標・待機時間の設定ファイル
 - `templates/`: プロンプトテンプレート
 - `outputs/`: 生成された日報の保存先
 - `logs/`: 作業ログ保存先
-- `browser_data/`: ブラウザプロファイル（Git管理外）
