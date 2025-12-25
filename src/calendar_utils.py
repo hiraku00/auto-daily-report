@@ -37,18 +37,25 @@ def get_calendar_service():
     service = build('calendar', 'v3', credentials=creds)
     return service
 
-def get_todays_events():
+def get_todays_events(target_date=None):
     """
-    Returns a list of events for the current day.
+    Returns a list of events for the specified day.
     Each event is a tuple (start_time, summary).
+    target_date: datetime.date or datetime.datetime object. If None, uses today.
     """
     service = get_calendar_service()
     if not service:
         return []
 
-    now = datetime.datetime.now()
-    start_of_day = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + 'Z'  # 'Z' indicates UTC time
-    end_of_day = now.replace(hour=23, minute=59, second=59, microsecond=0).isoformat() + 'Z'
+    if target_date is None:
+        target_date = datetime.datetime.now()
+    
+    # Ensure it's a datetime object for replacement
+    if isinstance(target_date, datetime.date) and not isinstance(target_date, datetime.datetime):
+        target_date = datetime.datetime.combine(target_date, datetime.time.min)
+
+    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + 'Z'  # 'Z' indicates UTC time
+    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0).isoformat() + 'Z'
 
     try:
         events_result = service.events().list(calendarId='primary', timeMin=start_of_day,
