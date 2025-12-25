@@ -27,14 +27,17 @@ def get_log_content(date_str):
     
     return "\n".join(log_lines)
 
-def generate_prompt_parts():
-    today = datetime.datetime.now().strftime("%Y-%m-%d")
+import argparse
+
+def generate_prompt_parts(target_date_str):
+    print(f"{target_date_str} の日報プロンプトを生成しています...\n")
     
-    print(f"{today} の日報プロンプトを生成しています...\n")
+    # Convert string to date object for calendar
+    target_date = datetime.datetime.strptime(target_date_str, "%Y-%m-%d")
     
     # Get Calendar Events
     try:
-        events = get_todays_events()
+        events = get_todays_events(target_date)
         events_text = ""
         if events:
             for start, summary in events:
@@ -45,7 +48,7 @@ def generate_prompt_parts():
         events_text = f"（カレンダー取得エラー: {e}）"
 
     # Get Work Logs
-    log_content = get_log_content(today)
+    log_content = get_log_content(target_date_str)
     if not log_content:
         log_content = "（ログファイルが見つかりません。）"
 
@@ -60,30 +63,46 @@ def generate_prompt_parts():
 
     # Split template into instructions and data
     parts = template.split("{daily_logs}")
-    instructions = parts[0].format(calendar_events=events_text)
+    # Strip whitespace then add exactly one newline back for cleanliness
+    instructions = parts[0].format(calendar_events=events_text, date=target_date_str).strip() + "\n"
     
     # We'll send these as two distinct pastes
     return instructions, log_content
 
 if __name__ == "__main__":
-    instructions, logs = generate_prompt_parts()
+    parser = argparse.ArgumentParser(description='Generate daily report prompt and optionally submit to Perplexity.')
+    parser.add_argument('--date', type=str, help='Target date in YYMMDD format (e.g., 241225). Defaults to today.', default=datetime.datetime.now().strftime("%y%m%d"))
+    
+    args = parser.parse_args()
+    input_date_str = args.date
+    
+    # 1. Parse YYMMDD -> Date Object
+    try:
+        target_date_obj = datetime.datetime.strptime(input_date_str, "%y%m%d")
+    except ValueError:
+        print("Error: Date must be in YYMMDD format (e.g., 251224 for 2025-12-24)")
+        sys.exit(1)
+
+    # 2. Convert to YYYY-MM-DD string for internal use
+    target_date_str = target_date_obj.strftime("%Y-%m-%d")
+
+    instructions, logs = generate_prompt_parts(target_date_str)
     
     if not instructions:
         sys.exit(1)
     
-    # For the local text file, we still save the full combined version for reference
-    full_prompt = instructions + "\n" + logs
     
     # Ensure outputs dir exists
     OUTPUT_DIR = "outputs"
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-    # Save to a text file for easy copying
+    # Save ONLY the instructions (prompt template + calendar) to a text file
+    # The user intends to paste logs separately or rely on the automation to do it.
     output_file = os.path.join(OUTPUT_DIR, "daily_report_prompt.txt")
     with open(output_file, "w", encoding="utf-8") as f:
-        f.write(full_prompt)
+        f.write(instructions)
         
-    print(f"プロンプトを保存しました: {output_file}")
+    print(f"プロンプト（指示書のみ）を保存しました: {output_file}")
     
     # Ask user if they want to run automation
     print("\n--- 自動送信 ---")
@@ -99,12 +118,12 @@ if __name__ == "__main__":
             "作業ログデータ": logs
         })
         
-        report_filename = os.path.join(OUTPUT_DIR, f"daily_report_{datetime.datetime.now().strftime('%Y-%m-%d')}.md")
+        report_filename = os.path.join(OUTPUT_DIR, f"daily_report_{target_date_str}.md")
         with open(report_filename, "w", encoding="utf-8") as f:
             f.write(response)
         
         print(f"\n日報を保存しました: {report_filename}")
     else:
         print("\n--- プロンプトのプレビュー ---\n")
-        print(prompt[:500] + "\n...(省略)...")
+        print(instructions[:500] + "\n...(省略)...")
 

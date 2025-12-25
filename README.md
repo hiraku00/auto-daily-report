@@ -59,7 +59,11 @@ python main.py
 1日の終わりに以下のコマンドを実行します。
 
 ```bash
+# 今日の日報を作成する場合
 python daily_report.py
+
+# 過去の日付（例: 2024年12月24日）の日報を作成する場合
+python daily_report.py --date 241224
 ```
 
 1. 今日のログとカレンダー予定からプロンプトが生成されます。
