@@ -294,6 +294,19 @@ def submit_to_perplexity(prompt_parts):
     if not response:
         return "エラー: クリップボードが空でした。"
     
+    # Clean up response preamble
+    # The template starts with titles like "作業日報 YY-MM-DD" or similar.
+    # We look for the first occurrence of "# 作業日報" or simply "作業日報" to find the start.
+    target_marker = "作業日報"
+    if target_marker in response:
+        start_index = response.find(target_marker)
+        # If there's a '#' before it, include it.
+        if start_index > 0 and response[start_index-1] == "#":
+            start_index -= 1
+        
+        print(f"回答から導入文を検出しました。キーワード '{target_marker}' 以降を抽出します。")
+        response = response[start_index:].strip()
+    
     return response
 
 def submit_to_gemini(prompt, prompt_file_path=None):
