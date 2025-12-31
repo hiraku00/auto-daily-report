@@ -21,8 +21,15 @@ def get_calendar_service():
     # If there are no (valid) credentials available, let the user log in.
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Token refresh failed: {e}. Re-authenticating...")
+                if os.path.exists('token.json'):
+                    os.remove('token.json')
+                creds = None
+        
+        if not creds:
             if not os.path.exists('credentials.json'):
                 print("No credentials.json found. Please download it from Google Cloud Console.")
                 return None
@@ -54,8 +61,10 @@ def get_todays_events(target_date=None):
     if isinstance(target_date, datetime.date) and not isinstance(target_date, datetime.datetime):
         target_date = datetime.datetime.combine(target_date, datetime.time.min)
 
-    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).isoformat() + 'Z'  # 'Z' indicates UTC time
-    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0).isoformat() + 'Z'
+    # Use local timezone offset instead of 'Z' (UTC)
+    # astimezone() without arguments uses the local timezone
+    start_of_day = target_date.replace(hour=0, minute=0, second=0, microsecond=0).astimezone().isoformat()
+    end_of_day = target_date.replace(hour=23, minute=59, second=59, microsecond=0).astimezone().isoformat()
 
     try:
         events_result = service.events().list(calendarId='primary', timeMin=start_of_day,
