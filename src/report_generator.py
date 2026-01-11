@@ -85,7 +85,7 @@ def generate_prompt_parts(target_date_str):
     full_logs_with_stats = log_content + "\n" + stats_text
 
     # 4. Load Template
-    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), TEMPLATE_DIR, "report_prompt_template.txt")
+    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), TEMPLATE_DIR, "report_prompt_template.md")
     try:
         with open(template_path, "r", encoding="utf-8") as f:
             template = f.read()
@@ -94,6 +94,18 @@ def generate_prompt_parts(target_date_str):
 
     # 5. Build instructions
     parts = template.split("{daily_logs}")
-    instructions = parts[0].format(calendar_events=events_text, date=target_date_str).strip() + "\n"
+    
+    # テンプレートに渡す追加の日付コンポーネントを準備
+    day_val = target_date.strftime("%d")
+    month_val = target_date.strftime("%b")
+    weekday_val = target_date.strftime("%a")
+    
+    instructions = parts[0].format(
+        calendar_events=events_text, 
+        date=target_date_str,
+        day=day_val,
+        month=month_val,
+        weekday=weekday_val
+    ).strip() + "\n"
     
     return instructions, full_logs_with_stats
