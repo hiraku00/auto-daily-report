@@ -290,22 +290,39 @@ def submit_to_perplexity(prompt_parts):
     print("回答をコピーしました！")
     
     response = pyperclip.paste()
-    
+    return clean_response(response)
+
+def clean_response(response):
+    """
+    Clean up response preamble and ensure it starts from the report header.
+    """
     if not response:
         return "エラー: クリップボードが空でした。"
     
     # Clean up response preamble
-    # The template starts with titles like "作業日報 YY-MM-DD" or similar.
-    # We look for the first occurrence of "# 作業日報" or simply "作業日報" to find the start.
+    # The template starts with titles like "# 作業日報 YY-MM-DD" or similar.
+    # We look for the first occurrence of "作業日報" to find the start.
     target_marker = "作業日報"
     if target_marker in response:
         start_index = response.find(target_marker)
-        # If there's a '#' before it, include it.
-        if start_index > 0 and response[start_index-1] == "#":
-            start_index -= 1
         
-        print(f"回答から導入文を検出しました。キーワード '{target_marker}' 以降を抽出します。")
-        response = response[start_index:].strip()
+        # Backtrack to find the start of the header (including # and spaces)
+        # We look backwards from start_index to the beginning of the string or a newline.
+        header_start = start_index
+        while header_start > 0 and response[header_start-1] not in ['\n', '\r']:
+            header_start -= 1
+        
+        # Slice from the detected header start and examine that line
+        header_line = response[header_start:start_index + len(target_marker)]
+        if '#' in header_line:
+            # Keep from the first '#' in that line
+            actual_start = header_start + header_line.find('#')
+            print(f"回答から導入文を検出しました。ヘッダー開始位置から抽出します。")
+            response = response[actual_start:].strip()
+        else:
+            # Fallback if no '#' found in that line, just start from the marker
+            print(f"回答から導入文を検出しました。キーワード '{target_marker}' 以降を抽出します。")
+            response = response[start_index:].strip()
     
     return response
 
