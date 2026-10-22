@@ -77,6 +77,9 @@ python daily_report.py --date 241224
 2. `claude -p` にプロンプトを渡し、日報の本文（`## 1.`〜`## 5.`）を書かせます（1〜2分程度）。
 3. 見出しを付けて `outputs/daily_report_YYYY-MM-DD.md` に保存します。
 4. 保存した日報を dashboard へ送ります（`.env` が未設定、または送信に失敗しても日報は保存されたままです。`--no-sync` で送信しません）。
+5. 日曜の日報ならその週、月末の日報ならその月のサマリを作って dashboard へ送ります（下の「週・月のサマリ」）。その日の日報を作り忘れても、次に日報を作ったときに、終わった直前の週・月のサマリがまだ無ければ作ります。`--no-summary` で作りません。
+
+* 作業ログ（jsonl）のうち日報に入れたくない行は、`daily_report.py` を実行する前に `logs/daily_log_YYYY-MM-DD.jsonl` から消してください。Claude にはログの要約を渡し、dashboard には日報とサマリの Markdown だけを送ります（jsonl は送りません）。
 
 * `claude -p` はログイン中のサブスクリプションで動くため、API の従量課金はかかりません（サブスクリプションの使用量には数えられます）。環境変数 `ANTHROPIC_API_KEY` は渡さないようにしています。
 * 同じ日付の日報が既にあるときは止まります。作り直すときは `--force` を付けます。
@@ -90,12 +93,13 @@ python daily_report.py --date 241224
 python sync_dashboard.py 261021          # 指定した日付（複数可）
 python sync_dashboard.py --all           # outputs/ の全日報
 python sync_dashboard.py --all --dry-run # 送る対象を表示するだけ
+python sync_dashboard.py --summaries     # outputs/summaries/ の週・月のサマリをすべて送る
 python sync_dashboard.py --reparse       # dashboard 側の解析の規則を変えた後、登録済みの日報を作り直させる
 ```
 
 ### 週・月のサマリ
 
-期間内の日報を読み直して、「何をして何が進んだか」の振り返りを `claude -p` に書かせ、`outputs/summaries/` に保存します。時間や回数の集計は dashboard（D1）で出せますが、文章のまとめはこちらで作ります。日数・記録時間・ログ欠落の合計はプログラムが計算してプロンプトに渡します。
+期間内の日報を読み直して、「何をして何が進んだか」の振り返りを `claude -p` に書かせ、`outputs/summaries/` に保存して dashboard へ送ります（`--no-sync` で送りません）。週末・月末は `daily_report.py` が自動で作るので、手で実行するのは作り直すときや過去の期間を作るときです。時間や回数の集計は dashboard（D1）で出せますが、文章のまとめはこちらで作ります。日数・記録時間・ログ欠落の合計はプログラムが計算してプロンプトに渡します。
 
 ```bash
 python summarize.py week               # 直近の終わった週（月曜〜日曜）→ weekly_YYYY-MM-DD.md（週の初日）
@@ -118,8 +122,8 @@ python summarize.py month 2610         # 2026年10月
     - `report_generator.py`: プロンプトの作成と、回答から日報への仕上げ
     - `log_digest.py`: 作業ログの要約、記録期間・ログ欠落の計算
     - `claude_runner.py`: `claude -p` の呼び出し
-    - `dashboard_sync.py`: dashboard の API（`POST /api/daily-reports`）への送信
-    - `summary_generator.py`: 週・月の期間、集計、サマリのプロンプト作成
+    - `dashboard_sync.py`: dashboard の API（`POST /api/daily-reports`、`POST /api/daily-report-summaries`）への送信
+    - `summary_generator.py`: 週・月の期間、集計、サマリの作成、週末・月末に作る期間の判定
     - `ocr_utils.py`: 画面OCR処理
     - `app_utils.py`: アプリ名取得
     - `calendar_utils.py`: カレンダー連携

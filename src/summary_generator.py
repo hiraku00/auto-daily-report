@@ -9,6 +9,7 @@ import datetime
 import os
 import re
 
+from src.claude_runner import run_claude
 from src.report_generator import ReportError, extract_body
 
 OUTPUT_DIR = "outputs"
@@ -50,6 +51,18 @@ class Period:
 
     def days(self):
         return [self.start + datetime.timedelta(days=i) for i in range((self.end - self.start).days + 1)]
+
+    @classmethod
+    def from_filename(cls, name):
+        """weekly_YYYY-MM-DD.md / monthly_YYYY-MM.md から期間を戻す。サマリのファイルでなければNone。"""
+        weekly = re.fullmatch(r"weekly_(\d{4}-\d{2}-\d{2})\.md", name)
+        if weekly:
+            day = datetime.date.fromisoformat(weekly.group(1))
+            return cls.week_of(day) if day.weekday() == 0 else None
+        monthly = re.fullmatch(r"monthly_(\d{4})-(\d{2})\.md", name)
+        if monthly:
+            return cls.month_of(datetime.date(int(monthly.group(1)), int(monthly.group(2)), 1))
+        return None
 
     @property
     def label(self):
@@ -181,3 +194,40 @@ def build_summary_prompt(period, reports):
 
 def finish_summary(header, response):
     return f"{header}\n\n{extract_body(response, SUMMARY_HEADINGS)}\n"
+
+
+def summary_path(period, summary_dir=SUMMARY_DIR):
+    return os.path.join(summary_dir, period.filename)
+
+
+def summary_files(summary_dir=SUMMARY_DIR):
+    """outputs/summaries/ にあるサマリを (Period, パス) の期間順で返す。"""
+    if not os.path.isdir(summary_dir):
+        return []
+    found = [(Period.from_filename(name), os.path.join(summary_dir, name)) for name in os.listdir(summary_dir)]
+    return sorted(((p, path) for p, path in found if p), key=lambda item: (item[0].kind, item[0].start))
+
+
+def due_periods(target_date, output_dir=OUTPUT_DIR, summary_dir=SUMMARY_DIR):
+    """日報を作った日(target_date)の時点で終わっている直近の週・月のうち、サマリがまだ無く日報があるもの。
+
+    日曜の日報を作ればその週、月末の日報を作ればその月が対象になる。その日の日報を作り忘れても、
+    次に日報を作ったときに直前の週・月が対象になる。過去のすべての期間をさかのぼって作ることはしない。"""
+    week = Period.week_of(target_date) if target_date.weekday() == 6 else Period.week_of(target_date - datetime.timedelta(days=7))
+    month_end = Period.month_of(target_date).end
+    month = Period.month_of(target_date) if target_date == month_end else Period.previous("month", target_date)
+    return [
+        period for period in (week, month)
+        if not os.path.exists(summary_path(period, summary_dir)) and load_reports(period, output_dir)
+    ]
+
+
+def generate_summary(period, model=None, output_dir=OUTPUT_DIR, summary_dir=SUMMARY_DIR):
+    """期間のサマリを Claude に書かせて保存し、保存先のパスを返す。"""
+    header, prompt = build_summary_prompt(period, load_reports(period, output_dir))
+    summary = finish_summary(header, run_claude(prompt, model=model))
+    os.makedirs(summary_dir, exist_ok=True)
+    path = summary_path(period, summary_dir)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(summary)
+    return path

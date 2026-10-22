@@ -1,4 +1,4 @@
-"""outputs/ の日報を dashboard（Cloudflare Workers + D1）へ送る。
+"""outputs/ の日報と、週・月のサマリを dashboard（Cloudflare Workers + D1）へ送る。
 
 送るのは日報の Markdown だけで、作業ログ（logs/*.jsonl）は送らない。
 dashboard 側が本文の sha256 で変更を判定し、同じ内容なら何も書かずに skipped を返すので、
@@ -48,16 +48,33 @@ def report_files(output_dir=OUTPUT_DIR, dates=None):
 
 def send_reports(files, *, base_url=None):
     """日報を20件ずつ送り、件数の合計と件ごとの結果を返す。"""
-    config = _config(base_url)
+    items = []
+    for date, path in files:
+        with open(path, encoding="utf-8") as f:
+            items.append({"date": date, "markdown": f.read()})
+    return _send_batches(_config(base_url), "/api/daily-reports", "reports", items)
+
+
+def send_summaries(summaries, *, base_url=None):
+    """週・月のサマリを送る。summaries は (Period, パス) の並び。"""
+    items = []
+    for period, path in summaries:
+        with open(path, encoding="utf-8") as f:
+            items.append({
+                "kind": period.kind,
+                "periodStart": period.start.isoformat(),
+                "periodEnd": period.end.isoformat(),
+                "markdown": f.read(),
+            })
+    return _send_batches(_config(base_url), "/api/daily-report-summaries", "summaries", items)
+
+
+def _send_batches(config, path, key, items):
     totals = {"created": 0, "updated": 0, "skipped": 0, "errors": 0, "results": []}
-    for start in range(0, len(files), BATCH_SIZE):
-        reports = []
-        for date, path in files[start : start + BATCH_SIZE]:
-            with open(path, encoding="utf-8") as f:
-                reports.append({"date": date, "markdown": f.read()})
-        result = _request_json(config, "/api/daily-reports", {"reports": reports})
-        for key in ("created", "updated", "skipped", "errors"):
-            totals[key] += int(result.get(key, 0))
+    for start in range(0, len(items), BATCH_SIZE):
+        result = _request_json(config, path, {key: items[start : start + BATCH_SIZE]})
+        for name in ("created", "updated", "skipped", "errors"):
+            totals[name] += int(result.get(name, 0))
         totals["results"].extend(result.get("results", []))
     return totals
 

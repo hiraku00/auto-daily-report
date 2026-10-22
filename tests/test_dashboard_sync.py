@@ -8,7 +8,7 @@ import pytest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src import dashboard_sync
-from src.dashboard_sync import DashboardSyncError, reparse_all, report_files, send_reports
+from src.dashboard_sync import DashboardSyncError, reparse_all, report_files, send_reports, send_summaries
 
 
 @pytest.fixture
@@ -91,3 +91,20 @@ def test_reparse_all_repeats_until_nothing_remains(env, monkeypatch):
     monkeypatch.setattr(dashboard_sync, "urlopen", fake_urlopen(responses, calls))
     assert reparse_all() == 25
     assert [c.full_url for c in calls] == ["https://dashboard.example.test/api/daily-reports/reparse"] * 2
+
+
+def test_send_summaries_posts_periods(env, monkeypatch, tmp_path):
+    import datetime
+    from src.summary_generator import Period
+
+    path = tmp_path / "weekly_2026-10-12.md"
+    path.write_text("# 週次サマリ\n", encoding="utf-8")
+    calls = []
+    body = json.dumps({"created": 1, "updated": 0, "skipped": 0, "errors": 0, "results": [{"kind": "week", "periodStart": "2026-10-12", "status": "created"}]})
+    monkeypatch.setattr(dashboard_sync, "urlopen", fake_urlopen([body], calls))
+
+    totals = send_summaries([(Period.week_of(datetime.date(2026, 10, 14)), str(path))])
+
+    assert totals["created"] == 1
+    assert calls[0].full_url == "https://dashboard.example.test/api/daily-report-summaries"
+    assert json.loads(calls[0].data) == {"summaries": [{"kind": "week", "periodStart": "2026-10-12", "periodEnd": "2026-10-18", "markdown": "# 週次サマリ\n"}]}
