@@ -7,7 +7,7 @@ import pytest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src.report_generator import ReportError
-from src.summary_generator import Period, build_summary_prompt, finish_summary, load_reports, report_stats, split_sections
+from src.summary_generator import Period, build_summary_prompt, due_periods, finish_summary, load_reports, report_stats, split_sections, summary_files
 
 D = datetime.date
 
@@ -104,3 +104,37 @@ def test_finish_summary_requires_all_sections():
     assert finish_summary("# 週次サマリ", f"まとめます。\n```\n{body}\n```") == f"# 週次サマリ\n\n{body}\n"
     with pytest.raises(ReportError):
         finish_summary("# h", body.split("## 5.")[0])
+
+
+def test_period_round_trips_through_its_filename(tmp_path):
+    for period in (Period.week_of(D(2026, 10, 15)), Period.month_of(D(2026, 2, 3))):
+        restored = Period.from_filename(period.filename)
+        assert (restored.kind, restored.start, restored.end) == (period.kind, period.start, period.end)
+    assert Period.from_filename("weekly_2026-10-13.md") is None  # 月曜でない
+    assert Period.from_filename("memo.md") is None
+
+    (tmp_path / "monthly_2026-09.md").write_text("x", encoding="utf-8")
+    (tmp_path / "weekly_2026-10-12.md").write_text("x", encoding="utf-8")
+    (tmp_path / "notes.md").write_text("x", encoding="utf-8")
+    assert [(p.kind, p.start) for p, _ in summary_files(str(tmp_path))] == [("month", D(2026, 9, 1)), ("week", D(2026, 10, 12))]
+
+
+def test_due_periods_follow_sundays_and_month_ends_and_catch_up_once(tmp_path):
+    reports, summaries = tmp_path / "outputs", tmp_path / "summaries"
+    reports.mkdir()
+    summaries.mkdir()
+    for day in (D(2026, 9, 28), D(2026, 9, 30), D(2026, 10, 4), D(2026, 10, 7)):
+        write(reports, day)
+
+    def due(day):
+        return [(p.kind, p.start) for p in due_periods(day, str(reports), str(summaries))]
+
+    # 月末(水曜): その月と、直前の終わった週(日報が無いので対象外)
+    assert due(D(2026, 9, 30)) == [("month", D(2026, 9, 1))]
+    # 日曜: その週。9月のサマリはまだ無いので一緒に作る
+    assert due(D(2026, 10, 4)) == [("week", D(2026, 9, 28)), ("month", D(2026, 9, 1))]
+    # 作った後は対象にならない。日曜を作り忘れても、翌週の日報で直前の週が対象になる
+    (summaries / "monthly_2026-09.md").write_text("x", encoding="utf-8")
+    assert due(D(2026, 10, 7)) == [("week", D(2026, 9, 28))]
+    (summaries / "weekly_2026-09-28.md").write_text("x", encoding="utf-8")
+    assert due(D(2026, 10, 7)) == []
