@@ -1,17 +1,16 @@
-Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作業ログを記録するツールです。Googleカレンダーの予定と合わせて、AI（Perplexity AI）に日報を自動生成・投稿させることができます。
+Macの画面を定期的にキャプチャして文字認識(OCR)を行い、作業ログを記録するツールです。Googleカレンダーの予定と合わせて、Claude（Claude Code の `claude -p`）に日報を自動生成させることができます。
 
 ## 特徴
 - **自動記録**: 1分ごとに画面のテキストとアクティブなアプリ名を記録。
 - **プライバシー重視**: スクリーンショット画像は保存せず、テキスト情報のみをローカルに保存します。
 - **Googleカレンダー連携**: 今日の予定を取得し、作業ログとの乖離を確認できます。
-- **完全自動化**: 蓄積したログからプロンプトを生成。ブラウザ（Brave）上のPerplexity AIを自動操作して日報を作成・保存します。
+- **完全自動化**: 蓄積したログを30分ごとに要約してプロンプトを作り、`claude -p` で日報を作成・保存します。ブラウザ操作は不要です。
 
 ## 必要要件
 - macOS (Vision Frameworkを使用するため)
 - Python 3.9以上
 - Google Cloud Project (Calendar API用)
-- Perplexity AI アカウント (Braveブラウザでのログインを推奨)
-- Brave ブラウザ
+- Claude Code（`claude` コマンド）をインストールし、Claude のサブスクリプション（Pro / Max）でログイン済みであること
 
 ## セットアップ手順
 
@@ -66,25 +65,25 @@ python daily_report.py
 python daily_report.py --date 241224
 ```
 
-1. 今日のログとカレンダー予定からプロンプトが生成されます。
-2. 「Perplexityに自動送信しますか？」と聞かれるので `y` を入力します。
-3. ログイン済みのBraveブラウザが自動的にPerplexityを開きます。
-4. **(初回のみ)** ボタン位置（座標）の設定が必要です。画面の指示に従ってマウス位置を登録してください。
-    * これらの設定は `config/perplexity_coordinates.ini` に保存されます。
-5. プロンプトが自動的に入力（大規模データの場合は分割ペースト）され、検索が実行されます。
-6. 回答が生成（設定された待機時間経過後）されると自動的にコピー・保存され、`outputs/daily_report_YYYY-MM-DD.md` として出力されます。
+1. その日のログ（`logs/daily_log_YYYY-MM-DD.jsonl`）を30分ごとに要約し、カレンダー予定と合わせて `templates/report_prompt_template.md` からプロンプトを作ります。記録期間・キャプチャ回数・ログ欠落はプログラムが正確に計算します。
+2. `claude -p` にプロンプトを渡し、日報の本文（`## 1.`〜`## 5.`）を書かせます（1〜2分程度）。
+3. 見出しを付けて `outputs/daily_report_YYYY-MM-DD.md` に保存します。
+
+* `claude -p` はログイン中のサブスクリプションで動くため、API の従量課金はかかりません（サブスクリプションの使用量には数えられます）。環境変数 `ANTHROPIC_API_KEY` は渡さないようにしています。
+* 同じ日付の日報が既にあるときは止まります。作り直すときは `--force` を付けます。
+* `--model sonnet` のようにモデルを指定できます。`--dry-run` を付けると、送らずにプロンプトを表示します。
 
 ## ファイル構成
 
 - `main.py`: ログ記録用スクリプト
 - `daily_report.py`: 日報生成・自動化スクリプト
 - `src/`: 
-    - `perplexity_automator.py`: ブラウザ自動操作 (pyautoguiによる座標操作)
+    - `report_generator.py`: プロンプトの作成と、回答から日報への仕上げ
+    - `log_digest.py`: 作業ログの要約、記録期間・ログ欠落の計算
+    - `claude_runner.py`: `claude -p` の呼び出し
     - `ocr_utils.py`: 画面OCR処理
     - `app_utils.py`: アプリ名取得
     - `calendar_utils.py`: カレンダー連携
-- `config/`: 
-    - `perplexity_coordinates.ini`: ボタン座標・待機時間の設定ファイル
-- `templates/`: プロンプトテンプレート
+- `templates/report_prompt_template.md`: プロンプトのテンプレート（日報の形式はここで決める）
 - `outputs/`: 生成された日報の保存先
 - `logs/`: 作業ログ保存先

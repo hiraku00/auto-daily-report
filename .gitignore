@@ -37,11 +37,12 @@ outputs/
 !outputs/.keep
 *.log
 
-# Generated Reports
-daily_report_prompt.txt
-
 # OS
 .DS_Store
 
-# Playwright
-browser_data/
+# Test cache
+.pytest_cache/
+
+# Local secrets
+.env
+.env.*
