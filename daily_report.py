@@ -4,7 +4,9 @@ import os
 import sys
 
 from src.claude_runner import ClaudeError, run_claude
+from src.dashboard_sync import DashboardSyncError, send_reports
 from src.report_generator import ReportError, build_prompt, finish_report
+from sync_dashboard import print_summary
 
 OUTPUT_DIR = "outputs"
 
@@ -16,6 +18,7 @@ def main():
     parser.add_argument("--model", help="claude に渡すモデル（例: sonnet、opus）。省略時は Claude Code の既定。")
     parser.add_argument("--force", action="store_true", help="同じ日付の日報があっても上書きする。")
     parser.add_argument("--dry-run", action="store_true", help="Claude に送らず、プロンプトを標準出力に表示するだけ。")
+    parser.add_argument("--no-sync", action="store_true", help="保存した日報を dashboard へ送らない。")
     args = parser.parse_args()
 
     try:
@@ -46,6 +49,16 @@ def main():
     with open(output_path, "w", encoding="utf-8") as f:
         f.write(report)
     print(f"日報を保存しました: {output_path}")
+
+    if args.no_sync:
+        return
+    # 送信に失敗しても日報は保存済みなので、失敗扱いにはせず、送り直す方法だけ示す
+    try:
+        totals = send_reports([(target_date, output_path)])
+    except DashboardSyncError as e:
+        print(f"dashboard への送信に失敗しました: {e}\n  送り直すには: python sync_dashboard.py {args.date}")
+        return
+    print_summary(totals)
 
 
 if __name__ == "__main__":

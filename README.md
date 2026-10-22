@@ -41,6 +41,14 @@ Googleカレンダーの予定を取得するために、以下の設定が必�
   - 「システム設定」 > 「プライバシーとセキュリティ」 > 「画面収録」
 - **アクセシビリティ (Accessibility)**: 必要に応じて許可してください。
 
+### 4. dashboard への送信設定（任意）
+
+日報を dashboard（Cloudflare Workers + D1）へ送る場合は、`.env.example` を `.env` にコピーし、dashboard のURLと Cloudflare Access の service token を設定します。`.env` は `.gitignore` の対象です。
+
+```bash
+cp .env.example .env
+```
+
 ## 使い方
 
 ### 記録の開始 (常駐プロセス)
@@ -68,22 +76,55 @@ python daily_report.py --date 241224
 1. その日のログ（`logs/daily_log_YYYY-MM-DD.jsonl`）を30分ごとに要約し、カレンダー予定と合わせて `templates/report_prompt_template.md` からプロンプトを作ります。記録期間・キャプチャ回数・ログ欠落はプログラムが正確に計算します。
 2. `claude -p` にプロンプトを渡し、日報の本文（`## 1.`〜`## 5.`）を書かせます（1〜2分程度）。
 3. 見出しを付けて `outputs/daily_report_YYYY-MM-DD.md` に保存します。
+4. 保存した日報を dashboard へ送ります（`.env` が未設定、または送信に失敗しても日報は保存されたままです。`--no-sync` で送信しません）。
 
 * `claude -p` はログイン中のサブスクリプションで動くため、API の従量課金はかかりません（サブスクリプションの使用量には数えられます）。環境変数 `ANTHROPIC_API_KEY` は渡さないようにしています。
 * 同じ日付の日報が既にあるときは止まります。作り直すときは `--force` を付けます。
 * `--model sonnet` のようにモデルを指定できます。`--dry-run` を付けると、送らずにプロンプトを表示します。
 
+### dashboard への送信
+
+`daily_report.py` を通さずに作成・編集した日報は、手で送ります。内容が変わっていない日報は dashboard 側で何も書かれないので、何度送り直しても問題ありません。送るのは日報の Markdown だけで、作業ログ（`logs/`）は送りません。
+
+```bash
+python sync_dashboard.py 261021          # 指定した日付（複数可）
+python sync_dashboard.py --all           # outputs/ の全日報
+python sync_dashboard.py --all --dry-run # 送る対象を表示するだけ
+python sync_dashboard.py --reparse       # dashboard 側の解析の規則を変えた後、登録済みの日報を作り直させる
+```
+
+### 週・月のサマリ
+
+期間内の日報を読み直して、「何をして何が進んだか」の振り返りを `claude -p` に書かせ、`outputs/summaries/` に保存します。時間や回数の集計は dashboard（D1）で出せますが、文章のまとめはこちらで作ります。日数・記録時間・ログ欠落の合計はプログラムが計算してプロンプトに渡します。
+
+```bash
+python summarize.py week               # 直近の終わった週（月曜〜日曜）→ weekly_YYYY-MM-DD.md（週の初日）
+python summarize.py week 261015        # 2026-10-15 を含む週
+python summarize.py month              # 直近の終わった月 → monthly_YYYY-MM.md
+python summarize.py month 2610         # 2026年10月
+```
+
+* 週次は各日の「メイン作業・作業詳細・知見・作業中だったファイル」を、月次はプロンプトが大きくなりすぎないよう「メイン作業・知見」だけを渡します。
+* 同じ期間のサマリが既にあるときは止まります。作り直すときは `--force`。`--model`、`--dry-run` も使えます。
+* 形式は `templates/summary_prompt_template.md` で決めます。
+
 ## ファイル構成
 
 - `main.py`: ログ記録用スクリプト
 - `daily_report.py`: 日報生成・自動化スクリプト
+- `sync_dashboard.py`: 日報を dashboard へ送るスクリプト
+- `summarize.py`: 週・月のサマリを作るスクリプト
 - `src/`: 
     - `report_generator.py`: プロンプトの作成と、回答から日報への仕上げ
     - `log_digest.py`: 作業ログの要約、記録期間・ログ欠落の計算
     - `claude_runner.py`: `claude -p` の呼び出し
+    - `dashboard_sync.py`: dashboard の API（`POST /api/daily-reports`）への送信
+    - `summary_generator.py`: 週・月の期間、集計、サマリのプロンプト作成
     - `ocr_utils.py`: 画面OCR処理
     - `app_utils.py`: アプリ名取得
     - `calendar_utils.py`: カレンダー連携
-- `templates/report_prompt_template.md`: プロンプトのテンプレート（日報の形式はここで決める）
-- `outputs/`: 生成された日報の保存先
+- `templates/report_prompt_template.md`: 日報のプロンプトのテンプレート（日報の形式はここで決める）
+- `templates/summary_prompt_template.md`: 週・月のサマリのプロンプトのテンプレート
+- `.env.example`: dashboard への送信設定の雛形
+- `outputs/`: 生成された日報の保存先（サマリは `outputs/summaries/`）
 - `logs/`: 作業ログ保存先
