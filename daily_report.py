@@ -1,70 +1,52 @@
+import argparse
 import datetime
 import os
 import sys
-import argparse
 
-# Ensure src is in sys.path
-sys.path.append(os.path.join(os.path.dirname(__file__), "src"))
+from src.claude_runner import ClaudeError, run_claude
+from src.report_generator import ReportError, build_prompt, finish_report
 
-from src.report_generator import generate_prompt_parts
+OUTPUT_DIR = "outputs"
+
 
 def main():
-    parser = argparse.ArgumentParser(description='Generate daily report prompt and optionally submit to Perplexity.')
-    parser.add_argument('--date', type=str, help='Target date in YYMMDD format (e.g., 241225). Defaults to today.', default=datetime.datetime.now().strftime("%y%m%d"))
-    
+    parser = argparse.ArgumentParser(description="作業ログから日報を作り、Claude（claude -p）に書かせて outputs/ に保存します。")
+    parser.add_argument("--date", default=datetime.datetime.now().strftime("%y%m%d"),
+                        help="対象日（YYMMDD形式、例: 261021）。省略時は今日。")
+    parser.add_argument("--model", help="claude に渡すモデル（例: sonnet、opus）。省略時は Claude Code の既定。")
+    parser.add_argument("--force", action="store_true", help="同じ日付の日報があっても上書きする。")
+    parser.add_argument("--dry-run", action="store_true", help="Claude に送らず、プロンプトを標準出力に表示するだけ。")
     args = parser.parse_args()
-    input_date_str = args.date
-    
-    # 1. Parse YYMMDD -> Date Object
+
     try:
-        target_date_obj = datetime.datetime.strptime(input_date_str, "%y%m%d")
+        target_date = datetime.datetime.strptime(args.date, "%y%m%d").strftime("%Y-%m-%d")
     except ValueError:
-        print("Error: Date must be in YYMMDD format (e.g., 251224 for 2025-12-24)")
-        sys.exit(1)
+        sys.exit("Error: --date は YYMMDD 形式で指定してください（例: 261021）")
 
-    # 2. Convert to YYYY-MM-DD string for internal use
-    target_date_str = target_date_obj.strftime("%Y-%m-%d")
+    output_path = os.path.join(OUTPUT_DIR, f"daily_report_{target_date}.md")
+    if os.path.exists(output_path) and not args.force and not args.dry_run:
+        sys.exit(f"Error: {output_path} は既にあります。作り直すときは --force を付けてください。")
 
-    # 3. Generate Parts
-    print(f"{target_date_str} の日報プロンプトを生成しています...\n")
-    instructions, logs = generate_prompt_parts(target_date_str)
-    
-    if not instructions:
-        print("Error: Prompt generation failed. Check if template exists.")
-        sys.exit(1)
-    
-    # Ensure outputs dir exists
-    OUTPUT_DIR = "outputs"
+    try:
+        header, prompt = build_prompt(target_date)
+    except ReportError as e:
+        sys.exit(f"Error: {e}")
+
+    if args.dry_run:
+        print(prompt)
+        return
+
+    print(f"{target_date} の日報を Claude に書かせています（数分かかります）...")
+    try:
+        report = finish_report(header, run_claude(prompt, model=args.model))
+    except (ClaudeError, ReportError) as e:
+        sys.exit(f"Error: {e}")
+
     os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write(report)
+    print(f"日報を保存しました: {output_path}")
 
-    # 4. Save Instructions
-    output_file = os.path.join(OUTPUT_DIR, "daily_report_prompt.txt")
-    with open(output_file, "w", encoding="utf-8") as f:
-        f.write(instructions)
-        
-    print(f"プロンプト（指示書のみ）を保存しました: {output_file}")
-    
-    # 5. Handle submission
-    print("\n--- 自動送信 ---")
-    choice = input("Perplexityにブラウザ経由で自動送信しますか？ (y/n): ").strip().lower()
-    
-    if choice == 'y':
-        print("ブラウザを操作しています...")
-        from src.perplexity_automator import submit_to_perplexity
-        
-        response = submit_to_perplexity({
-            "指示とカレンダー": instructions,
-            "作業ログデータ (統計含む)": logs
-        })
-        
-        report_filename = os.path.join(OUTPUT_DIR, f"daily_report_{target_date_str}.md")
-        with open(report_filename, "w", encoding="utf-8") as f:
-            f.write(response)
-        
-        print(f"\n日報を保存しました: {report_filename}")
-    else:
-        print("\n--- プロンプトのプレビュー ---\n")
-        print(instructions[:500] + "\n...(省略)...")
 
 if __name__ == "__main__":
     main()

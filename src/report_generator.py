@@ -1,111 +1,68 @@
-import json
+"""日報のプロンプトを作り、Claudeの回答を日報のMarkdownに仕上げる。"""
+
 import datetime
 import os
+import re
+
 from src.calendar_utils import get_todays_events
+from src.log_digest import app_counts, build_digest, build_header, find_gaps, load_entries
 
-LOG_DIR = "logs"
-TEMPLATE_DIR = "templates"
+TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "report_prompt_template.md")
 
-def calculate_app_usage_stats(date_str):
-    """
-    Logs data からアプリごとの使用回数を集計し、
-    概要テキストを生成する。
-    """
-    filename = os.path.join(LOG_DIR, f"daily_log_{date_str}.jsonl")
-    if not os.path.exists(filename):
-        return ""
-    
-    stats = {}
-    with open(filename, 'r', encoding='utf-8') as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-                app_name = entry.get('app_name', 'Unknown')
-                stats[app_name] = stats.get(app_name, 0) + 1
-            except json.JSONDecodeError:
-                continue
+SECTION_HEADINGS = [
+    "## 1. 本日のメイン作業",
+    "## 2. アプリ使用状況",
+    "## 3. 作業詳細",
+    "## 4. 得られた知見･メモ",
+    "## 5. 作業中だったファイル",
+]
 
-    if not stats:
-        return ""
 
-    # Sort by frequency
-    sorted_stats = sorted(stats.items(), key=lambda x: x[1], reverse=True)
-    
-    lines = ["\n### アプリ使用統計 (キャプチャ頻度)"]
-    lines.append("| アプリケーション | キャプチャ回数 |")
-    lines.append("|---|---|")
-    for app, count in sorted_stats:
-        lines.append(f"| {app} | {count}回 |")
-    
-    return "\n".join(lines)
+class ReportError(RuntimeError):
+    """日報を作れない(ログが無い、回答の形式が違う、など)。"""
 
-def get_log_content(date_str):
-    filename = os.path.join(LOG_DIR, f"daily_log_{date_str}.jsonl")
-    if not os.path.exists(filename):
-        return None
-    
-    log_lines = []
-    with open(filename, 'r', encoding='utf-8') as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-                # Reformat for the prompt
-                log_lines.append(f"{entry['timestamp']} | {entry['app_name']} | {entry.get('text_summary', '')}")
-            except json.JSONDecodeError:
-                continue
-    
-    return "\n".join(log_lines)
 
-def generate_prompt_parts(target_date_str):
-    """
-    Generate the prompt sections for given date.
-    Returns (instructions, logs_with_stats)
-    """
-    # 1. Get Calendar Events
-    target_date = datetime.datetime.strptime(target_date_str, "%Y-%m-%d")
+def _calendar_text(date_str):
     try:
-        events = get_todays_events(target_date)
-        events_text = ""
-        if events:
-            for start, summary in events:
-                events_text += f"- {start}: {summary}\n"
-        else:
-            events_text = "（予定なし）"
-    except Exception as e:
-        events_text = f"（カレンダー取得エラー: {e}）"
+        events = get_todays_events(datetime.datetime.strptime(date_str, "%Y-%m-%d"))
+    except Exception as e:  # カレンダーが取れなくても日報は作る
+        return f"（カレンダー取得エラー: {e}）"
+    return "\n".join(f"- {start}: {summary}" for start, summary in events) or "（予定なし）"
 
-    # 2. Get Work Logs
-    log_content = get_log_content(target_date_str)
-    if not log_content:
-        log_content = "（ログファイルが見つかりません。）"
 
-    # 3. Calculate Stats
-    stats_text = calculate_app_usage_stats(target_date_str)
-    
-    full_logs_with_stats = log_content + "\n" + stats_text
+def build_prompt(date_str, log_dir="logs", calendar_text=None):
+    """(日報の見出し3行, Claudeに渡すプロンプト) を返す。"""
+    entries = load_entries(date_str, log_dir)
+    if not entries:
+        raise ReportError(f"{date_str} の作業ログ（{log_dir}/daily_log_{date_str}.jsonl）がありません")
 
-    # 4. Load Template
-    template_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), TEMPLATE_DIR, "report_prompt_template.md")
-    try:
-        with open(template_path, "r", encoding="utf-8") as f:
-            template = f.read()
-    except FileNotFoundError:
-        return None, None
+    header = build_header(date_str, entries)
+    gaps = find_gaps(entries)
+    with open(TEMPLATE_PATH, encoding="utf-8") as f:
+        template = f.read()
+    # str.format() はログ中の { } を置き換え項目と誤解するので使わない(#11 の KeyError)
+    values = {
+        "{date}": date_str,
+        "{header}": header,
+        "{gaps}": "\n".join(f"- {a}～{b}（{m // 60}時間{m % 60}分）" for a, b, m in gaps) or "（なし）",
+        "{app_counts}": "\n".join(f"- {app}: {count}回" for app, count in app_counts(entries)),
+        "{calendar_events}": calendar_text if calendar_text is not None else _calendar_text(date_str),
+        "{digest}": build_digest(entries),
+    }
+    prompt = template
+    for key, value in values.items():
+        prompt = prompt.replace(key, value)
+    return header, prompt
 
-    # 5. Build instructions
-    parts = template.split("{daily_logs}")
-    
-    # テンプレートに渡す追加の日付コンポーネントを準備
-    day_val = target_date.strftime("%d")
-    month_val = target_date.strftime("%b")
-    weekday_val = target_date.strftime("%a")
-    
-    instructions = parts[0].format(
-        calendar_events=events_text, 
-        date=target_date_str,
-        day=day_val,
-        month=month_val,
-        weekday=weekday_val
-    ).strip() + "\n"
-    
-    return instructions, full_logs_with_stats
+
+def finish_report(header, response):
+    """Claudeの回答から本文(## 1. 〜 ## 5.)だけを取り出し、見出しを付けて日報にする。"""
+    lines = [line for line in response.replace("\r\n", "\n").split("\n") if not line.strip().startswith("```")]
+    start = next((i for i, line in enumerate(lines) if re.match(r"\s*##\s*1\.", line)), None)
+    if start is None:
+        raise ReportError("回答に「## 1. 本日のメイン作業」がありません")
+    body = "\n".join(lines[start:]).strip()
+    missing = [h for h in SECTION_HEADINGS if h.split(".")[0] + "." not in body]
+    if missing:
+        raise ReportError(f"回答に次の節がありません: {', '.join(missing)}")
+    return f"{header}\n\n{body}\n"
