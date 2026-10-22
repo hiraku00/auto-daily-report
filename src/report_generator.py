@@ -55,14 +55,20 @@ def build_prompt(date_str, log_dir="logs", calendar_text=None):
     return header, prompt
 
 
-def finish_report(header, response):
-    """Claudeの回答から本文(## 1. 〜 ## 5.)だけを取り出し、見出しを付けて日報にする。"""
+def extract_body(response, headings):
+    """Claudeの回答から、最初の `## 1.` 以降の本文を取り出す。前置きとコードブロックの記号は除き、
+    headings の節(番号で判定)がそろっていなければ ReportError にする。"""
     lines = [line for line in response.replace("\r\n", "\n").split("\n") if not line.strip().startswith("```")]
     start = next((i for i, line in enumerate(lines) if re.match(r"\s*##\s*1\.", line)), None)
     if start is None:
-        raise ReportError("回答に「## 1. 本日のメイン作業」がありません")
+        raise ReportError(f"回答に「{headings[0]}」がありません")
     body = "\n".join(lines[start:]).strip()
-    missing = [h for h in SECTION_HEADINGS if h.split(".")[0] + "." not in body]
+    missing = [h for h in headings if h.split(".")[0] + "." not in body]
     if missing:
         raise ReportError(f"回答に次の節がありません: {', '.join(missing)}")
-    return f"{header}\n\n{body}\n"
+    return body
+
+
+def finish_report(header, response):
+    """Claudeの回答から本文(## 1. 〜 ## 5.)だけを取り出し、見出しを付けて日報にする。"""
+    return f"{header}\n\n{extract_body(response, SECTION_HEADINGS)}\n"

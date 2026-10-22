@@ -46,3 +46,4 @@ outputs/
 # Local secrets
 .env
 .env.*
+!.env.example
