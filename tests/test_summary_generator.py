@@ -113,16 +113,19 @@ def test_period_round_trips_through_its_filename(tmp_path):
     assert Period.from_filename("weekly_2026-10-13.md") is None  # 月曜でない
     assert Period.from_filename("memo.md") is None
 
-    (tmp_path / "monthly_2026-09.md").write_text("x", encoding="utf-8")
-    (tmp_path / "weekly_2026-10-12.md").write_text("x", encoding="utf-8")
-    (tmp_path / "notes.md").write_text("x", encoding="utf-8")
+    (tmp_path / "monthly").mkdir()
+    (tmp_path / "weekly").mkdir()
+    (tmp_path / "monthly" / "monthly_2026-09.md").write_text("x", encoding="utf-8")
+    (tmp_path / "weekly" / "weekly_2026-10-12.md").write_text("x", encoding="utf-8")
+    (tmp_path / "weekly" / "notes.md").write_text("x", encoding="utf-8")
     assert [(p.kind, p.start) for p, _ in summary_files(str(tmp_path))] == [("month", D(2026, 9, 1)), ("week", D(2026, 10, 12))]
 
 
 def test_due_periods_follow_sundays_and_month_ends_and_catch_up_once(tmp_path):
     reports, summaries = tmp_path / "outputs", tmp_path / "summaries"
     reports.mkdir()
-    summaries.mkdir()
+    (summaries / "weekly").mkdir(parents=True)
+    (summaries / "monthly").mkdir()
     for day in (D(2026, 9, 28), D(2026, 9, 30), D(2026, 10, 4), D(2026, 10, 7)):
         write(reports, day)
 
@@ -134,7 +137,7 @@ def test_due_periods_follow_sundays_and_month_ends_and_catch_up_once(tmp_path):
     # 日曜: その週。9月のサマリはまだ無いので一緒に作る
     assert due(D(2026, 10, 4)) == [("week", D(2026, 9, 28)), ("month", D(2026, 9, 1))]
     # 作った後は対象にならない。日曜を作り忘れても、翌週の日報で直前の週が対象になる
-    (summaries / "monthly_2026-09.md").write_text("x", encoding="utf-8")
+    (summaries / "monthly" / "monthly_2026-09.md").write_text("x", encoding="utf-8")
     assert due(D(2026, 10, 7)) == [("week", D(2026, 9, 28))]
-    (summaries / "weekly_2026-09-28.md").write_text("x", encoding="utf-8")
+    (summaries / "weekly" / "weekly_2026-09-28.md").write_text("x", encoding="utf-8")
     assert due(D(2026, 10, 7)) == []

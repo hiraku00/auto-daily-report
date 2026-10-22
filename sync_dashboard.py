@@ -21,7 +21,7 @@ def main():
     parser = argparse.ArgumentParser(description="outputs/ の日報を dashboard（D1）へ送ります。内容が変わっていない日報は dashboard 側で何もしません。")
     parser.add_argument("dates", nargs="*", help="送る日付（YYMMDD形式、例: 261021）。複数指定できます。")
     parser.add_argument("--all", action="store_true", help="outputs/ の日報をすべて送る。")
-    parser.add_argument("--summaries", action="store_true", help="outputs/summaries/ の週・月のサマリをすべて送る。")
+    parser.add_argument("--summaries", action="store_true", help="outputs/weekly/・outputs/monthly/ の週・月のサマリをすべて送る。")
     parser.add_argument("--reparse", action="store_true", help="dashboard 側の解析の規則を変えた後、登録済みの日報を作り直させる。")
     parser.add_argument("--dry-run", action="store_true", help="送らずに、送る対象の一覧を表示するだけ。")
     args = parser.parse_args()

@@ -93,13 +93,13 @@ python daily_report.py --date 241224
 python sync_dashboard.py 261021          # 指定した日付（複数可）
 python sync_dashboard.py --all           # outputs/ の全日報
 python sync_dashboard.py --all --dry-run # 送る対象を表示するだけ
-python sync_dashboard.py --summaries     # outputs/summaries/ の週・月のサマリをすべて送る
+python sync_dashboard.py --summaries     # outputs/weekly/・outputs/monthly/ の週・月のサマリをすべて送る
 python sync_dashboard.py --reparse       # dashboard 側の解析の規則を変えた後、登録済みの日報を作り直させる
 ```
 
 ### 週・月のサマリ
 
-期間内の日報を読み直して、「何をして何が進んだか」の振り返りを `claude -p` に書かせ、`outputs/summaries/` に保存して dashboard へ送ります（`--no-sync` で送りません）。週末・月末は `daily_report.py` が自動で作るので、手で実行するのは作り直すときや過去の期間を作るときです。時間や回数の集計は dashboard（D1）で出せますが、文章のまとめはこちらで作ります。日数・記録時間・ログ欠落の合計はプログラムが計算してプロンプトに渡します。
+期間内の日報を読み直して、「何をして何が進んだか」の振り返りを `claude -p` に書かせ、`outputs/weekly/`・`outputs/monthly/` に保存して dashboard へ送ります（`--no-sync` で送りません）。週末・月末は `daily_report.py` が自動で作るので、手で実行するのは作り直すときや過去の期間を作るときです。時間や回数の集計は dashboard（D1）で出せますが、文章のまとめはこちらで作ります。日数・記録時間・ログ欠落の合計はプログラムが計算してプロンプトに渡します。
 
 ```bash
 python summarize.py week               # 直近の終わった週（月曜〜日曜）→ weekly_YYYY-MM-DD.md（週の初日）
@@ -130,5 +130,5 @@ python summarize.py month 2610         # 2026年10月
 - `templates/report_prompt_template.md`: 日報のプロンプトのテンプレート（日報の形式はここで決める）
 - `templates/summary_prompt_template.md`: 週・月のサマリのプロンプトのテンプレート
 - `.env.example`: dashboard への送信設定の雛形
-- `outputs/`: 生成された日報の保存先（サマリは `outputs/summaries/`）
+- `outputs/`: 生成された日報の保存先（週次サマリは `outputs/weekly/`、月次は `outputs/monthly/`）
 - `logs/`: 作業ログ保存先

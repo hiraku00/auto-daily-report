@@ -36,7 +36,7 @@ def parse_period(kind, value):
 
 
 def main():
-    parser = argparse.ArgumentParser(description="期間内の日報から、週・月ごとのサマリを Claude（claude -p）に書かせて outputs/summaries/ に保存し、dashboard へ送ります。")
+    parser = argparse.ArgumentParser(description="期間内の日報から、週・月ごとのサマリを Claude（claude -p）に書かせて outputs/weekly/・outputs/monthly/ に保存し、dashboard へ送ります。")
     parser.add_argument("kind", choices=["week", "month"], help="week: 月曜〜日曜 / month: 1日〜末日")
     parser.add_argument("when", nargs="?", help="週は YYMMDD（その週のどの日でもよい）、月は YYMM。省略時は直近の終わった週・月。")
     parser.add_argument("--model", help="claude に渡すモデル（例: sonnet、opus）。省略時は Claude Code の既定。")

@@ -13,7 +13,7 @@ from src.claude_runner import run_claude
 from src.report_generator import ReportError, extract_body
 
 OUTPUT_DIR = "outputs"
-SUMMARY_DIR = os.path.join(OUTPUT_DIR, "summaries")
+SUMMARY_SUBDIRS = {"week": "weekly", "month": "monthly"}
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "summary_prompt_template.md")
 
 SUMMARY_HEADINGS = ["## 1. 概要", "## 2. 主な取り組み", "## 3. 成果・進捗", "## 4. 得られた知見", "## 5. 次に向けて"]
@@ -196,19 +196,22 @@ def finish_summary(header, response):
     return f"{header}\n\n{extract_body(response, SUMMARY_HEADINGS)}\n"
 
 
-def summary_path(period, summary_dir=SUMMARY_DIR):
-    return os.path.join(summary_dir, period.filename)
+def summary_path(period, summary_root=OUTPUT_DIR):
+    """週は outputs/weekly/、月は outputs/monthly/ に置く。"""
+    return os.path.join(summary_root, SUMMARY_SUBDIRS[period.kind], period.filename)
 
 
-def summary_files(summary_dir=SUMMARY_DIR):
-    """outputs/summaries/ にあるサマリを (Period, パス) の期間順で返す。"""
-    if not os.path.isdir(summary_dir):
-        return []
-    found = [(Period.from_filename(name), os.path.join(summary_dir, name)) for name in os.listdir(summary_dir)]
+def summary_files(summary_root=OUTPUT_DIR):
+    """outputs/weekly/ と outputs/monthly/ にあるサマリを (Period, パス) の期間順で返す。"""
+    found = []
+    for subdir in SUMMARY_SUBDIRS.values():
+        directory = os.path.join(summary_root, subdir)
+        if os.path.isdir(directory):
+            found += [(Period.from_filename(name), os.path.join(directory, name)) for name in os.listdir(directory)]
     return sorted(((p, path) for p, path in found if p), key=lambda item: (item[0].kind, item[0].start))
 
 
-def due_periods(target_date, output_dir=OUTPUT_DIR, summary_dir=SUMMARY_DIR):
+def due_periods(target_date, output_dir=OUTPUT_DIR, summary_root=OUTPUT_DIR):
     """日報を作った日(target_date)の時点で終わっている直近の週・月のうち、サマリがまだ無く日報があるもの。
 
     日曜の日報を作ればその週、月末の日報を作ればその月が対象になる。その日の日報を作り忘れても、
@@ -218,16 +221,16 @@ def due_periods(target_date, output_dir=OUTPUT_DIR, summary_dir=SUMMARY_DIR):
     month = Period.month_of(target_date) if target_date == month_end else Period.previous("month", target_date)
     return [
         period for period in (week, month)
-        if not os.path.exists(summary_path(period, summary_dir)) and load_reports(period, output_dir)
+        if not os.path.exists(summary_path(period, summary_root)) and load_reports(period, output_dir)
     ]
 
 
-def generate_summary(period, model=None, output_dir=OUTPUT_DIR, summary_dir=SUMMARY_DIR):
+def generate_summary(period, model=None, output_dir=OUTPUT_DIR, summary_root=OUTPUT_DIR):
     """期間のサマリを Claude に書かせて保存し、保存先のパスを返す。"""
     header, prompt = build_summary_prompt(period, load_reports(period, output_dir))
     summary = finish_summary(header, run_claude(prompt, model=model))
-    os.makedirs(summary_dir, exist_ok=True)
-    path = summary_path(period, summary_dir)
+    path = summary_path(period, summary_root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         f.write(summary)
     return path
