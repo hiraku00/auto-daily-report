@@ -94,6 +94,7 @@ python sync_dashboard.py 261021          # 指定した日付（複数可）
 python sync_dashboard.py --all           # outputs/ の全日報
 python sync_dashboard.py --all --dry-run # 送る対象を表示するだけ
 python sync_dashboard.py --summaries     # outputs/weekly/・outputs/monthly/ の週・月のサマリをすべて送る
+python sync_dashboard.py --delete 261023 # 間違って送った日報を dashboard から消す（outputs/ のファイルは残る）
 python sync_dashboard.py --reparse       # dashboard 側の解析の規則を変えた後、登録済みの日報を作り直させる
 ```
 

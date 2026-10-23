@@ -91,6 +91,17 @@ def reparse_all(*, base_url=None):
     raise DashboardSyncError(f"再解析が {MAX_REPARSE_ROUNDS} 回で終わりませんでした（{total}件まで完了）")
 
 
+def delete_report(date, *, base_url=None):
+    """dashboard から1日分の日報を消す（付随データと改訂履歴も消える）。無かったときは False。"""
+    try:
+        _request_json(_config(base_url), f"/api/daily-reports/{date}", method="DELETE")
+    except DashboardSyncError as error:
+        if getattr(error, "status", None) == 404:
+            return False
+        raise
+    return True
+
+
 def _config(base_url=None):
     load_dotenv(ENV_PATH)
     url = _base_url(base_url or os.environ.get("DASHBOARD_API_URL", ""))
@@ -103,11 +114,11 @@ def _config(base_url=None):
     return {"url": url, "client_id": client_id, "client_secret": client_secret}
 
 
-def _request_json(config, path, payload):
+def _request_json(config, path, payload=None, *, method="POST"):
     request = Request(
         config["url"] + path,
-        data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-        method="POST",
+        data=None if payload is None else json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        method=method,
         headers={
             "accept": "application/json",
             "content-type": "application/json",
@@ -122,7 +133,9 @@ def _request_json(config, path, payload):
             raw = response.read().decode("utf-8")
     except HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")[:500]
-        raise DashboardSyncError(f"dashboard が HTTP {error.code} を返しました: {detail}") from error
+        sync_error = DashboardSyncError(f"dashboard が HTTP {error.code} を返しました: {detail}")
+        sync_error.status = error.code
+        raise sync_error from error
     except (URLError, TimeoutError, OSError) as error:
         raise DashboardSyncError(f"dashboard への接続に失敗しました: {error}") from error
     try:

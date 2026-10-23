@@ -8,7 +8,7 @@ import pytest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from src import dashboard_sync
-from src.dashboard_sync import DashboardSyncError, reparse_all, report_files, send_reports, send_summaries
+from src.dashboard_sync import DashboardSyncError, delete_report, reparse_all, report_files, send_reports, send_summaries
 
 
 @pytest.fixture
@@ -83,6 +83,26 @@ def test_non_json_response_points_at_access(env, monkeypatch, tmp_path):
     monkeypatch.setattr(dashboard_sync, "urlopen", fake_urlopen(["<html>Sign in</html>"], []))
     with pytest.raises(DashboardSyncError, match="service token"):
         send_reports(report_files(str(tmp_path)))
+
+
+def test_delete_report_sends_delete_and_treats_404_as_missing(env, monkeypatch):
+    from urllib.error import HTTPError
+
+    calls = []
+    responses = [json.dumps({"deleted": "2026-10-23"})]
+
+    def urlopen(request, timeout, context):
+        calls.append(request)
+        if not responses:
+            raise HTTPError(request.full_url, 404, "Not Found", {}, io.BytesIO('{"error":"見つかりません。"}'.encode("utf-8")))
+        return FakeResponse(responses.pop(0).encode("utf-8"))
+
+    monkeypatch.setattr(dashboard_sync, "urlopen", urlopen)
+
+    assert delete_report("2026-10-23") is True
+    assert delete_report("2026-10-23") is False
+    assert calls[0].full_url == "https://dashboard.example.test/api/daily-reports/2026-10-23"
+    assert calls[0].get_method() == "DELETE" and calls[0].data is None
 
 
 def test_reparse_all_repeats_until_nothing_remains(env, monkeypatch):
