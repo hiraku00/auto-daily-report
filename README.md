@@ -98,6 +98,23 @@ python sync_dashboard.py --delete 261023 # 間違って送った日報を dashbo
 python sync_dashboard.py --reparse       # dashboard 側の解析の規則を変えた後、登録済みの日報を作り直させる
 ```
 
+### dashboard から日報を消す
+
+間違った日付で作った日報や、送るべきでなかった日報は `--delete` で dashboard から消します。dashboard の画面には削除ボタンがありません。削除 API（`DELETE /api/daily-reports/:date`）は送信と同じ service token でしか呼べないので、消すときはこのコマンドを使います。
+
+```bash
+python sync_dashboard.py --delete 261023 --dry-run # 消す対象を表示するだけ
+python sync_dashboard.py --delete 261023           # 2026-10-23 の日報を消す
+python sync_dashboard.py --delete 261022 261023    # 複数の日付をまとめて消す
+```
+
+* 日報の本文と一緒に、作業項目・アプリ使用状況・時間帯・知見・タグと、上書き前の原本（改訂）も消えます。元に戻せないので、先に `--dry-run` で日付を確かめてください。
+* 消すのは dashboard 側だけです。手元の `outputs/daily_report_YYYY-MM-DD.md` は残るので、不要ならファイルも消してください。残したまま `--all` を実行すると、その日報はもう一度送られます。
+* dashboard に無い日付は `not found` と表示するだけで、エラーにはしません。日付ごとに `deleted` / `not found` を表示し、最後に件数をまとめます。
+* 全件を消す事故を防ぐため、`--all` と一緒には使えません。
+* 日付を直して作り直すときは、間違った日付を `--delete` で消してから、`python daily_report.py --date YYMMDD` で正しい日付の日報を作ります。
+* 週・月のサマリは `--delete` の対象外です。サマリを消す API（`DELETE /api/daily-report-summaries/:kind/:periodStart`）はありますが、CLI はまだ対応していません。
+
 ### 週・月のサマリ
 
 期間内の日報を読み直して、「何をして何が進んだか」の振り返りを `claude -p` に書かせ、`outputs/weekly/`・`outputs/monthly/` に保存して dashboard へ送ります（`--no-sync` で送りません）。週末・月末は `daily_report.py` が自動で作るので、手で実行するのは作り直すときや過去の期間を作るときです。時間や回数の集計は dashboard（D1）で出せますが、文章のまとめはこちらで作ります。日数・記録時間・ログ欠落の合計はプログラムが計算してプロンプトに渡します。
@@ -117,7 +134,7 @@ python summarize.py month 2610         # 2026年10月
 
 - `main.py`: ログ記録用スクリプト
 - `daily_report.py`: 日報生成・自動化スクリプト
-- `sync_dashboard.py`: 日報を dashboard へ送るスクリプト
+- `sync_dashboard.py`: 日報を dashboard へ送る・dashboard から消すスクリプト
 - `summarize.py`: 週・月のサマリを作るスクリプト
 - `src/`: 
     - `report_generator.py`: プロンプトの作成と、回答から日報への仕上げ
