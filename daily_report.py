@@ -21,15 +21,16 @@ def parse_date(value, option):
 
 
 def target_dates(args):
-    """--date、または --from 〜 --to（両端を含む）の日付を古い順に返す。"""
+    """--date、または --from 〜 --to（両端を含む）の日付を古い順に返す。省略時は前日。"""
+    yesterday = datetime.date.today() - datetime.timedelta(days=1)
     if args.date_from is None:
         if args.date_to is not None:
             sys.exit("Error: --to は --from と一緒に指定してください")
-        return [parse_date(args.date or datetime.date.today().strftime("%y%m%d"), "--date")]
+        return [parse_date(args.date, "--date") if args.date else yesterday]
     if args.date is not None:
         sys.exit("Error: --date と --from は一緒に指定できません")
     start = parse_date(args.date_from, "--from")
-    end = parse_date(args.date_to, "--to") if args.date_to else datetime.date.today()
+    end = parse_date(args.date_to, "--to") if args.date_to else yesterday
     if start > end:
         sys.exit("Error: --from は --to より前の日付にしてください")
     return [start + datetime.timedelta(days=i) for i in range((end - start).days + 1)]
@@ -72,9 +73,9 @@ def make_report(date, args):
 
 def main():
     parser = argparse.ArgumentParser(description="作業ログから日報を作り、Claude（claude -p）に書かせて outputs/ に保存します。")
-    parser.add_argument("--date", help="対象日（YYMMDD形式、例: 261021）。省略時は今日。")
+    parser.add_argument("--date", help="対象日（YYMMDD形式、例: 261021）。省略時は前日。")
     parser.add_argument("--from", dest="date_from", help="期間でまとめて作るときの最初の日（YYMMDD形式）。--date とは一緒に使えない。")
-    parser.add_argument("--to", dest="date_to", help="期間でまとめて作るときの最後の日（YYMMDD形式）。省略時は今日。")
+    parser.add_argument("--to", dest="date_to", help="期間でまとめて作るときの最後の日（YYMMDD形式）。省略時は前日。")
     parser.add_argument("--model", help="claude に渡すモデル（例: sonnet、opus）。省略時は Claude Code の既定。")
     parser.add_argument("--force", action="store_true", help="同じ日付の日報があっても上書きする。")
     parser.add_argument("--dry-run", action="store_true", help="Claude に送らず、プロンプトを標準出力に表示するだけ。")
