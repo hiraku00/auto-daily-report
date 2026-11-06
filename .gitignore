@@ -28,6 +28,9 @@ venv/
 # Logs
 logs/
 
+# VS Code search override (local only)
+.ignore
+
 # Sensitive Info / Config
 credentials.json
 token.json

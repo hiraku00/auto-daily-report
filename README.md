@@ -63,15 +63,27 @@ python main.py
 
 ### 日報の生成 (業務終了時)
 
-1日の終わりに以下のコマンドを実行します。
+翌朝（または1日の終わり）に以下のコマンドを実行します。日付を省略すると前日の日報を作ります。
 
 ```bash
-# 今日の日報を作成する場合
+# 前日の日報を作成する場合
 python daily_report.py
+
+# 今日の日報を作成する場合（例: 2026年10月30日）
+python daily_report.py --date 261030
 
 # 過去の日付（例: 2024年12月24日）の日報を作成する場合
 python daily_report.py --date 241224
+
+# 飛び飛びの日付をまとめて作成する場合（スペースかカンマ区切り）
+python daily_report.py --date 261103 261105 261107
+
+# 作り忘れた何日か分をまとめて作成する場合（両端を含む。--to を省略すると前日まで）
+python daily_report.py --from 261020 --to 261024
 ```
+
+* 複数の `--date` や `--from`/`--to` では古い日から順に1日ずつ作ります。日報が既にある日は飛ばし（`--force` で作り直し）、ログが無いなどで作れない日があっても残りの日は続けて、最後に作成・省略・失敗の件数を表示します。失敗した日があると終了コードは 1 です。
+* 期間に日曜や月末が入っていれば、その日の日報を作った時点で週・月のサマリも作ります。
 
 1. その日のログ（`logs/daily_log_YYYY-MM-DD.jsonl`）を30分ごとに要約し、カレンダー予定と合わせて `templates/report_prompt_template.md` からプロンプトを作ります。記録期間・キャプチャ回数・ログ欠落はプログラムが正確に計算します。
 2. `claude -p` にプロンプトを渡し、日報の本文（`## 1.`〜`## 5.`）を書かせます（1〜2分程度）。
@@ -149,4 +161,7 @@ python summarize.py month 2610         # 2026年10月
 - `templates/summary_prompt_template.md`: 週・月のサマリのプロンプトのテンプレート
 - `.env.example`: dashboard への送信設定の雛形
 - `outputs/`: 生成された日報の保存先（週次サマリは `outputs/weekly/`、月次は `outputs/monthly/`）
-- `logs/`: 作業ログ保存先
+- `logs/`: 作業ログ保存先（`.gitignore` で Git の管理対象外）
+- `tests/`: `pytest tests/` で実行するテスト
+
+* VS Code の検索は `.gitignore` の対象を検索しないため、`logs/` の jsonl が検索に出ません。検索に含めたいときは、ルートに `.ignore` を作って `!logs/` と書きます（`.ignore` 自体も `.gitignore` の対象なので、Git には上がりません）。
