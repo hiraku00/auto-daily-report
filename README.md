@@ -161,4 +161,7 @@ python summarize.py month 2610         # 2026年10月
 - `templates/summary_prompt_template.md`: 週・月のサマリのプロンプトのテンプレート
 - `.env.example`: dashboard への送信設定の雛形
 - `outputs/`: 生成された日報の保存先（週次サマリは `outputs/weekly/`、月次は `outputs/monthly/`）
-- `logs/`: 作業ログ保存先
+- `logs/`: 作業ログ保存先（`.gitignore` で Git の管理対象外）
+- `tests/`: `pytest tests/` で実行するテスト
+
+* VS Code の検索は `.gitignore` の対象を検索しないため、`logs/` の jsonl が検索に出ません。検索に含めたいときは、ルートに `.ignore` を作って `!logs/` と書きます（`.ignore` 自体も `.gitignore` の対象なので、Git には上がりません）。
