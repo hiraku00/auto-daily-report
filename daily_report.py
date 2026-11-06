@@ -21,12 +21,16 @@ def parse_date(value, option):
 
 
 def target_dates(args):
-    """--date、または --from 〜 --to（両端を含む）の日付を古い順に返す。省略時は前日。"""
+    """--date（複数可）、または --from 〜 --to（両端を含む）の日付を古い順に返す。省略時は前日。"""
     yesterday = datetime.date.today() - datetime.timedelta(days=1)
     if args.date_from is None:
         if args.date_to is not None:
             sys.exit("Error: --to は --from と一緒に指定してください")
-        return [parse_date(args.date, "--date") if args.date else yesterday]
+        if not args.date:
+            return [yesterday]
+        # 「--date 261103 261105」「--date 261103,261105」のどちらでも受け付け、重複は1つにまとめる
+        values = [v for arg in args.date for v in arg.split(",") if v]
+        return sorted({parse_date(v, "--date") for v in values})
     if args.date is not None:
         sys.exit("Error: --date と --from は一緒に指定できません")
     start = parse_date(args.date_from, "--from")
@@ -73,7 +77,7 @@ def make_report(date, args):
 
 def main():
     parser = argparse.ArgumentParser(description="作業ログから日報を作り、Claude（claude -p）に書かせて outputs/ に保存します。")
-    parser.add_argument("--date", help="対象日（YYMMDD形式、例: 261021）。省略時は前日。")
+    parser.add_argument("--date", nargs="+", help="対象日（YYMMDD形式、例: 261021）。複数指定可（例: --date 261103 261105）。省略時は前日。")
     parser.add_argument("--from", dest="date_from", help="期間でまとめて作るときの最初の日（YYMMDD形式）。--date とは一緒に使えない。")
     parser.add_argument("--to", dest="date_to", help="期間でまとめて作るときの最後の日（YYMMDD形式）。省略時は前日。")
     parser.add_argument("--model", help="claude に渡すモデル（例: sonnet、opus）。省略時は Claude Code の既定。")
@@ -94,7 +98,7 @@ def main():
             sys.exit(f"Error: {e}")
         return
 
-    # 期間指定では、1日失敗しても残りの日は続け、最後に結果をまとめる
+    # 複数日の指定では、1日失敗しても残りの日は続け、最後に結果をまとめる
     done, skipped, failed = [], [], []
     for date in dates:
         output_path = os.path.join(OUTPUT_DIR, f"daily_report_{date.isoformat()}.md")
@@ -109,7 +113,7 @@ def main():
             print(f"{date.isoformat()}: 日報を作れませんでした: {e}")
             failed.append(date)
 
-    print(f"\n{dates[0].isoformat()}〜{dates[-1].isoformat()}: 作成 {len(done)} 件、既存のため省略 {len(skipped)} 件、失敗 {len(failed)} 件")
+    print(f"\n{dates[0].isoformat()}〜{dates[-1].isoformat()}（{len(dates)} 日）: 作成 {len(done)} 件、既存のため省略 {len(skipped)} 件、失敗 {len(failed)} 件")
     if failed:
         print("  失敗した日: " + ", ".join(d.isoformat() for d in failed))
         sys.exit(1)
