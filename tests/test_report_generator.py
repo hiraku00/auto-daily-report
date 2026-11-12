@@ -103,6 +103,7 @@ def test_run_claude_uses_subscription_and_no_tools(monkeypatch):
 
     monkeypatch.setattr(claude_runner.shutil, "which", lambda name: "/usr/bin/claude")
     monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_runner, "keychain_token", lambda: None)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-test")
     assert run_claude("prompt", model="sonnet") == "## 1. 本日のメイン作業\n"
     command = calls["command"]
@@ -115,9 +116,65 @@ def test_run_claude_uses_subscription_and_no_tools(monkeypatch):
 
 def test_run_claude_reports_failures(monkeypatch):
     monkeypatch.setattr(claude_runner.shutil, "which", lambda name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_runner, "keychain_token", lambda: None)
     monkeypatch.setattr(claude_runner.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 1, stdout="", stderr="not logged in"))
     with pytest.raises(ClaudeError, match="not logged in"):
         run_claude("prompt")
     monkeypatch.setattr(claude_runner.shutil, "which", lambda name: None)
     with pytest.raises(ClaudeError):
         run_claude("prompt")
+
+
+def test_run_claude_explains_expired_login(monkeypatch):
+    monkeypatch.setattr(claude_runner.shutil, "which", lambda name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_runner, "keychain_token", lambda: None)
+    error = "Failed to authenticate: OAuth session expired and could not be refreshed"
+    monkeypatch.setattr(claude_runner.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 1, stdout="", stderr=error))
+    with pytest.raises(ClaudeError, match="setup-token"):
+        run_claude("prompt")
+
+
+def run_with_token_env(monkeypatch, keychain, env_token):
+    calls = {}
+
+    def fake_run(command, **kwargs):
+        calls["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, stdout="ok\n", stderr="")
+
+    monkeypatch.setattr(claude_runner.shutil, "which", lambda name: "/usr/bin/claude")
+    monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(claude_runner, "keychain_token", lambda: keychain)
+    if env_token is None:
+        monkeypatch.delenv("CLAUDE_CODE_OAUTH_TOKEN", raising=False)
+    else:
+        monkeypatch.setenv("CLAUDE_CODE_OAUTH_TOKEN", env_token)
+    run_claude("prompt")
+    return calls["env"].get("CLAUDE_CODE_OAUTH_TOKEN")
+
+
+def test_run_claude_uses_keychain_token(monkeypatch):
+    assert run_with_token_env(monkeypatch, keychain="from-keychain", env_token=None) == "from-keychain"
+    assert run_with_token_env(monkeypatch, keychain="from-keychain", env_token="from-env") == "from-env"
+    assert run_with_token_env(monkeypatch, keychain=None, env_token=None) is None
+
+
+def test_keychain_token_reads_security_command(monkeypatch):
+    seen = {}
+
+    def fake_run(command, **kwargs):
+        seen["command"] = command
+        return subprocess.CompletedProcess(command, 0, stdout="tok\n", stderr="")
+
+    monkeypatch.setattr(claude_runner.subprocess, "run", fake_run)
+    assert claude_runner.keychain_token() == "tok"
+    assert seen["command"][:2] == ["security", "find-generic-password"]
+    assert claude_runner.KEYCHAIN_SERVICE in seen["command"]
+
+    monkeypatch.setattr(claude_runner.subprocess, "run", lambda command, **kw: subprocess.CompletedProcess(command, 44, stdout="", stderr="not found"))
+    assert claude_runner.keychain_token() is None
+
+    def missing(command, **kw):
+        raise FileNotFoundError("security")
+
+    monkeypatch.setattr(claude_runner.subprocess, "run", missing)
+    assert claude_runner.keychain_token() is None

@@ -94,6 +94,15 @@ python daily_report.py --from 261020 --to 261024
 * 作業ログ（jsonl）のうち日報に入れたくない行は、`daily_report.py` を実行する前に `logs/daily_log_YYYY-MM-DD.jsonl` から消してください。Claude にはログの要約を渡し、dashboard には日報とサマリの Markdown だけを送ります（jsonl は送りません）。
 
 * `claude -p` はログイン中のサブスクリプションで動くため、API の従量課金はかかりません（サブスクリプションの使用量には数えられます）。環境変数 `ANTHROPIC_API_KEY` は渡さないようにしています。
+* Claude Code の通常のログインは、ときどき `OAuth session expired and could not be refreshed` で切れます。切れないようにするには、長期トークン（約1年有効）を作って macOS のキーチェーンに保存しておきます。`daily_report.py` はキーチェーンにトークンがあれば `CLAUDE_CODE_OAUTH_TOKEN` として `claude` に渡します（環境変数で渡したときはそちらが優先）。トークンはこのマシンのキーチェーンにだけ置かれ、リポジトリには入りません。
+
+  ```bash
+  claude setup-token
+  # 表示されたトークンを、聞かれたところに貼り付けます（2回）
+  security add-generic-password -U -a "$USER" -s auto-daily-report-claude-oauth-token -w
+  ```
+
+  トークンを作り直したときは同じコマンドで上書きされます。消すときは `security delete-generic-password -s auto-daily-report-claude-oauth-token` です。
 * 同じ日付の日報が既にあるときは止まります。作り直すときは `--force` を付けます。
 * `--model sonnet` のようにモデルを指定できます。`--dry-run` を付けると、送らずにプロンプトを表示します。
 
