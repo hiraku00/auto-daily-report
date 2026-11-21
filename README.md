@@ -49,6 +49,10 @@ Googleカレンダーの予定を取得するために、以下の設定が必�
 cp .env.example .env
 ```
 
+### 5. モーニングページの読み込み設定（任意）
+
+Obsidian のモーニングページ（`YYYY/MM/DD.md` の形で日ごとに置いたノート）から、日報に6節目「予定と振り返り」を書き足す場合は、`.env` の `MORNING_PAGE_DIR` にそのフォルダ（年のフォルダが並んでいるところ）を書きます。未設定なら6節目は付けません。
+
 ## 使い方
 
 ### 記録の開始 (常駐プロセス)
@@ -87,9 +91,10 @@ python daily_report.py --from 261020 --to 261024
 
 1. その日のログ（`logs/daily_log_YYYY-MM-DD.jsonl`）を30分ごとに要約し、カレンダー予定と合わせて `templates/report_prompt_template.md` からプロンプトを作ります。記録期間・キャプチャ回数・ログ欠落はプログラムが正確に計算します。
 2. `claude -p` にプロンプトを渡し、日報の本文（`## 1.`〜`## 5.`）を書かせます（1〜2分程度）。
-3. 見出しを付けて `outputs/daily_report_YYYY-MM-DD.md` に保存します。
-4. 保存した日報を dashboard へ送ります（`.env` が未設定、または送信に失敗しても日報は保存されたままです。`--no-sync` で送信しません）。
-5. 日曜の日報ならその週、月末の日報ならその月のサマリを作って dashboard へ送ります（下の「週・月のサマリ」）。その日の日報を作り忘れても、次に日報を作ったときに、終わった直前の週・月のサマリがまだ無ければ作ります。`--no-summary` で作りません。
+3. 見出しを付けます。
+4. `MORNING_PAGE_DIR` があれば、できた日報とモーニングページを `claude -p` に渡し、6節目「予定と振り返り」だけを書かせて末尾に付けます（下の「モーニングページの6節目」）。書けなくても1〜5節の日報はそのまま保存します。
+5. `outputs/daily_report_YYYY-MM-DD.md` に保存し、dashboard へ送ります（`.env` が未設定、または送信に失敗しても日報は保存されたままです。`--no-sync` で送信しません）。
+6. 日曜の日報ならその週、月末の日報ならその月のサマリを作って dashboard へ送ります（下の「週・月のサマリ」）。その日の日報を作り忘れても、次に日報を作ったときに、終わった直前の週・月のサマリがまだ無ければ作ります。`--no-summary` で作りません。
 
 * 作業ログ（jsonl）のうち日報に入れたくない行は、`daily_report.py` を実行する前に `logs/daily_log_YYYY-MM-DD.jsonl` から消してください。Claude にはログの要約を渡し、dashboard には日報とサマリの Markdown だけを送ります（jsonl は送りません）。
 
@@ -105,6 +110,27 @@ python daily_report.py --from 261020 --to 261024
   トークンを作り直したときは同じコマンドで上書きされます。消すときは `security delete-generic-password -s auto-daily-report-claude-oauth-token` です。
 * 同じ日付の日報が既にあるときは止まります。作り直すときは `--force` を付けます。
 * `--model sonnet` のようにモデルを指定できます。`--dry-run` を付けると、送らずにプロンプトを表示します。
+
+### モーニングページの6節目
+
+画面ログの日報は PC の作業しか分かりません。モーニングページには、前日の振り返り（食事・外出・睡眠など PC の外のこと）とその日の予定が書かれているので、D 日の日報には次の2つを使って、`## 6. 予定と振り返り` を書き足します。
+
+| 使うページ | 使う節 | 6節目での役割 |
+|---|---|---|
+| D 日のページ | 「今日の予定」 | 予定と実績の比べ（`### 予定と実績`） |
+| D+1 日のページ | 「昨日の振り返り」「気になること・考えたこと」 | PC の外の活動・気がかり（`### PCの外の活動`、`### 気になったこと・持ち越し`） |
+
+* 使うのは整理済みの節（`## 昨日（11/20・金）の振り返り` のような見出しの下）だけで、音声をそのまま文字にした本文は使いません。見出しに日付があって D 日と合わないとき（前の日にページを書かなかったなど）は使いません。
+* 1〜5節は画面ログから作ったまま変えません（段1）。6節目は別の `claude -p` で書かせ（段2、テンプレートは `templates/morning_prompt_template.md`）、6節目の先頭に使ったページを `> モーニングページ: 11/20の予定・11/21の振り返り` の形で付けます。
+* 朝、モーニングページの振り返りを整理し終える前に日報を作ったときは、振り返りなしで6節目を書きます。整理し終えたら、6節目だけを書き直して送り直します（1〜5節は変わりません）。
+
+  ```bash
+  python daily_report.py --date 261120 --morning-only            # 6節目だけ付け直して dashboard へ送る
+  python daily_report.py --date 261120 --morning-only --dry-run  # 段2のプロンプトを表示するだけ
+  python daily_report.py --no-morning                            # 6節目を付けずに日報を作る
+  ```
+
+* dashboard には6節目も含めた日報の Markdown を送り、「振り返り」タブで読めます。モーニングページのファイルそのものは送りません。
 
 ### dashboard への送信
 
@@ -159,6 +185,8 @@ python summarize.py month 2610         # 2026年10月
 - `summarize.py`: 週・月のサマリを作るスクリプト
 - `src/`: 
     - `report_generator.py`: プロンプトの作成と、回答から日報への仕上げ
+    - `morning_page.py`: モーニングページから予定・振り返りの節を取り出す
+    - `reflection.py`: 6節目「予定と振り返り」のプロンプトの作成と、日報への追記
     - `log_digest.py`: 作業ログの要約、記録期間・ログ欠落の計算
     - `claude_runner.py`: `claude -p` の呼び出し
     - `dashboard_sync.py`: dashboard の API（`POST /api/daily-reports`、`POST /api/daily-report-summaries`）への送信
@@ -168,6 +196,7 @@ python summarize.py month 2610         # 2026年10月
     - `calendar_utils.py`: カレンダー連携
 - `templates/report_prompt_template.md`: 日報のプロンプトのテンプレート（日報の形式はここで決める）
 - `templates/summary_prompt_template.md`: 週・月のサマリのプロンプトのテンプレート
+- `templates/morning_prompt_template.md`: 6節目「予定と振り返り」のプロンプトのテンプレート
 - `.env.example`: dashboard への送信設定の雛形
 - `outputs/`: 生成された日報の保存先（週次サマリは `outputs/weekly/`、月次は `outputs/monthly/`）
 - `logs/`: 作業ログ保存先（`.gitignore` で Git の管理対象外）
