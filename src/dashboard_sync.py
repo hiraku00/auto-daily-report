@@ -69,6 +69,11 @@ def send_summaries(summaries, *, base_url=None):
     return _send_batches(_config(base_url), "/api/daily-report-summaries", "summaries", items)
 
 
+def send_morning_pages(records, *, base_url=None):
+    """モーニングページの記録(ヘッダーと取り出した箇条書き。本文は含まない)を送る。records は dict の並び。"""
+    return _send_batches(_config(base_url), "/api/morning-pages", "pages", list(records))
+
+
 def _send_batches(config, path, key, items):
     totals = {"created": 0, "updated": 0, "skipped": 0, "errors": 0, "results": []}
     for start in range(0, len(items), BATCH_SIZE):

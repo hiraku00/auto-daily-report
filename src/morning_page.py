@@ -25,8 +25,8 @@ RETRO_RE = re.compile(r"^昨日.*振り返り")
 THOUGHTS_RE = re.compile(r"^(気になること|内省)")
 # 「今日（10/8）の状況」「新居のこと・今日の予定」のように、予定の節の名前は揺れる
 PLAN_RE = re.compile(r"^今日|今日の予定")
-# 本文だけのページを読むとき、本文の始まりとする見出し（「## 本文」「# 【本文】」）
-BODY_HEADING_RE = re.compile(r"^#{1,3}\s*【?本文】?\s*$", re.MULTILINE)
+# 本文だけのページを読むとき、本文の始まりとする見出し（「## 本文」「# 【本文】」「## 本文 :」）
+BODY_HEADING_RE = re.compile(r"^#{1,3}\s*【?本文】?\s*[:：]?\s*$", re.MULTILINE)
 # URL だけの行（貼り付けたリンク）は、予定・振り返りの手がかりにならないので除く
 URL_ONLY_RE = re.compile(r"^\s*(?:[-*]\s*)?\[?<?https?://\S+?>?\]?(?:\(https?://\S+\))?\s*$")
 # 見出しの「（11/20・金）」「（9/6）」の日付
@@ -113,12 +113,15 @@ def heading_date_matches(title, date):
     return (int(match.group(1)), int(match.group(2))) == (date.month, date.day)
 
 
-def page_body(text):
-    """整理された節の無いページの本文（「本文」の見出しの後ろ）から、URL だけの行と空行を除いたもの。"""
+def page_body(text, limit=MAX_SECTION_CHARS):
+    """整理された節の無いページの本文（「本文」の見出しの後ろ）から、URL だけの行と空行を除いたもの。limit 字で切る。"""
     match = BODY_HEADING_RE.search(text)
     body = text[match.end():] if match else text
     lines = [line for line in body.split("\n") if line.strip() and not URL_ONLY_RE.match(line)]
-    return _clip("\n".join(lines)) if lines else None
+    if not lines:
+        return None
+    joined = "\n".join(lines)
+    return joined if len(joined) <= limit else joined[:limit] + "\n（長いので以下省略）"
 
 
 def load_morning_context(date, base_dir, raw=False):
