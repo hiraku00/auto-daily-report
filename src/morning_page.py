@@ -47,11 +47,12 @@ class MorningContext:
     def source_line(self):
         """6節目の先頭に付ける、使ったページの説明（プログラムが付けるので、日付は正確）。"""
         next_day = self.date + datetime.timedelta(days=1)
+        # 「11/21の振り返り」だと 11/21 を振り返ったように読めるので、どちらも対象日（D 日）についての話だと分かる書き方にする
         parts = []
         if self.plan is not None:
-            parts.append(f"{_short(self.date)}の予定")
+            parts.append(f"当日朝（{_short(self.date)}）の予定")
         if self.retro is not None:
-            parts.append(f"{_short(next_day)}の振り返り")
+            parts.append(f"翌朝（{_short(next_day)}）の振り返り")
         return "> モーニングページ: " + "・".join(parts)
 
 

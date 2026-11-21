@@ -97,7 +97,7 @@ def test_loads_plan_from_the_day_and_retro_from_the_next_morning(tmp_path):
     assert "カレー" in context.retro
     assert "自転車" in context.thoughts
     assert context.notices == []
-    assert context.source_line() == "> モーニングページ: 3/10の予定・3/11の振り返り"
+    assert context.source_line() == "> モーニングページ: 当日朝（3/10）の予定・翌朝（3/11）の振り返り"
 
 
 def test_missing_next_morning_keeps_the_plan_and_says_why(tmp_path):
@@ -105,7 +105,7 @@ def test_missing_next_morning_keeps_the_plan_and_says_why(tmp_path):
     context = load_morning_context(DATE, str(tmp_path))
     assert context.plan and context.retro is None and not context.empty
     assert any("3/11のモーニングページがありません" in notice for notice in context.notices)
-    assert context.source_line() == "> モーニングページ: 3/10の予定"
+    assert context.source_line() == "> モーニングページ: 当日朝（3/10）の予定"
 
 
 def test_retro_for_another_day_is_not_used(tmp_path):
@@ -162,7 +162,7 @@ def test_append_replaces_existing_section6(tmp_path):
     assert twice.count(SECTION_HEADING) == 1
     assert "1回目" not in twice and twice.endswith("- 2回目\n")
     assert strip_reflection(twice) == REPORT
-    assert "> モーニングページ: 3/10の予定・3/11の振り返り" in twice
+    assert "> モーニングページ: 当日朝（3/10）の予定・翌朝（3/11）の振り返り" in twice
 
 
 def cli_args(**overrides):
