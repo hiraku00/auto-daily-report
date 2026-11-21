@@ -12,6 +12,16 @@ from src.report_generator import ReportError
 
 TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templates", "morning_prompt_template.md")
 SECTION_HEADING = "## 6. 予定と振り返り"
+# 本文から読んだ日（--raw-morning）だけ、プロンプトの {raw_note} に入れる注意
+RAW_NOTE = """# 追加の注意（この日のモーニングページは整理されていない）
+
+- 下の「対象日の予定」「翌朝の振り返り」のうち「（本文）」と付いたものは、整理された節ではなく、本人がその朝に書いた（または話した）**本文そのもの**です。
+- 対象日の朝の本文には前日の振り返りも混ざっています。予定として使うのは、**対象日にやるつもりのこと**（「今日は〜」「【ToDo】の ○今日」など）だけです。
+- 翌朝の本文から振り返りとして使うのは、**対象日（その朝から見た「昨日」）のこと**（「昨日は〜」「【ToDo】の ○昨日 の『済』」など）だけです。翌日の予定や雑談は使いません。
+- 本文に予定がはっきり書かれていなければ、「予定と実績」は書かれている分だけでよい。毎日の決まった作業（Anki など）を「予定外」にしない。
+- 貼り付けたメモ・設定手順・引用などは無視します。
+
+"""
 SECTION_START_RE = re.compile(r"^\s*##\s*6\s*[.．]")
 
 
@@ -30,14 +40,21 @@ def build_reflection_prompt(date_str, report, context):
     values = {
         "{date}": date_str,
         "{report}": strip_reflection(report).strip(),
-        "{plan}": context.plan or "（なし）",
-        "{retro}": context.retro or "（なし）",
+        "{raw_note}": RAW_NOTE if context.raw else "",
+        "{plan}": _labeled(context.plan, context.plan_raw),
+        "{retro}": _labeled(context.retro, context.retro_raw),
         "{thoughts}": context.thoughts or "（なし）",
     }
     prompt = template
     for key, value in values.items():
         prompt = prompt.replace(key, value)
     return prompt
+
+
+def _labeled(text, raw):
+    if not text:
+        return "（なし）"
+    return f"（本文）\n\n{text}" if raw else text
 
 
 def extract_reflection(response):
