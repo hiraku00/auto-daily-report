@@ -10,6 +10,7 @@ import os
 import re
 
 from src.claude_runner import run_claude
+from src.reflection_stats import SECTION_TITLE as REFLECTION_TITLE, notes_digest, reflection_stats
 from src.report_generator import ReportError, extract_body
 
 OUTPUT_DIR = "outputs"
@@ -18,9 +19,11 @@ TEMPLATE_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "templa
 
 SUMMARY_HEADINGS = ["## 1. 概要", "## 2. 主な取り組み", "## 3. 成果・進捗", "## 4. 得られた知見", "## 5. 次に向けて"]
 # 月次は日数が多く、日報をすべて渡すとプロンプトが大きくなるので、作業の概要と知見の節だけを渡す
+# 6節目「予定と振り返り」(モーニングページから書き足す任意の節)は、週次は全文、月次は持ち越し・気がかりの箇条書きだけを渡す。
+# 数値(予定の達成・PCの外の活動の件数)は、どちらも日報から reflection_stats() で計算して「期間の集計」に入れる。
 SECTIONS_BY_KIND = {
-    "week": ("本日のメイン作業", "作業詳細", "得られた知見", "作業中だったファイル"),
-    "month": ("本日のメイン作業", "得られた知見"),
+    "week": ("本日のメイン作業", "作業詳細", "得られた知見", "作業中だったファイル", REFLECTION_TITLE),
+    "month": ("本日のメイン作業", "得られた知見", REFLECTION_TITLE),
 }
 WEEKDAYS = "月火水木金土日"
 
@@ -161,15 +164,27 @@ def build_summary_prompt(period, reports):
     stats, recorded, gap = build_stats(period, reports)
     wanted = SECTIONS_BY_KIND[period.kind]
     blocks = []
+    reflections = {}
     for day, markdown in sorted(reports.items()):
         sections = split_sections(markdown)
+        reflection = next((body for title, body in sections.items() if REFLECTION_TITLE in title), "")
+        if reflection:
+            reflections[day] = reflection
         # 日付を ##、節を ###、日報内の分類(###)を #### にして、見出しの階層が日付の下に収まるようにする
-        parts = [
-            f"### {title}\n" + re.sub(r"^###(?!#)", "####", body, flags=re.M)
-            for title, body in sections.items()
-            if any(w in title for w in wanted)
-        ]
+        parts = []
+        for title, body in sections.items():
+            if not any(w in title for w in wanted):
+                continue
+            if REFLECTION_TITLE in title and period.kind == "month":
+                body = notes_digest(body)
+                if not body:
+                    continue
+                title = f"{title}（持ち越し・気がかり）"
+            parts.append(f"### {title}\n" + re.sub(r"^###(?!#)", "####", body, flags=re.M))
         blocks.append(f"## {day:%Y-%m-%d}（{WEEKDAYS[day.weekday()]}）\n\n" + "\n\n".join(parts))
+    reflection_lines = reflection_stats(reflections)
+    if reflection_lines:
+        stats += "\n" + reflection_lines
 
     with open(TEMPLATE_PATH, encoding="utf-8") as f:
         template = f.read()

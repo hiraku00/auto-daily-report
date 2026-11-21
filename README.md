@@ -175,6 +175,7 @@ python summarize.py month 2610         # 2026年10月
 ```
 
 * 週次は各日の「メイン作業・作業詳細・知見・作業中だったファイル」を、月次はプロンプトが大きくなりすぎないよう「メイン作業・知見」だけを渡します。
+* 日報に6節目「予定と振り返り」（モーニングページから書き足したもの）がある期間は、サマリにも反映します。週次は6節目の全文を、月次は持ち越し・気がかりの箇条書きだけを渡し、予定の達成（済の割合）・PCの外の活動の種類別の件数・持ち越しと気がかりの件数は、プログラムが `src/reflection_stats.py` で計算して「期間の集計」に入れます。Claude は、これを使ってサマリの末尾に `## 6. 予定と振り返り`（`### 予定の達成`・`### 繰り返し持ち越されたこと`・`### PCの外の様子`）を書きます。6節目の無い期間は、今までどおり5節です。過去のサマリを6節目入りに作り直すには `python summarize.py week 261104 --force` のように実行します。
 * 同じ期間のサマリが既にあるときは止まります。作り直すときは `--force`。`--model`、`--dry-run` も使えます。
 * 形式は `templates/summary_prompt_template.md` で決めます。
 
@@ -191,6 +192,7 @@ python summarize.py month 2610         # 2026年10月
     - `log_digest.py`: 作業ログの要約、記録期間・ログ欠落の計算
     - `claude_runner.py`: `claude -p` の呼び出し
     - `dashboard_sync.py`: dashboard の API（`POST /api/daily-reports`、`POST /api/daily-report-summaries`）への送信
+    - `reflection_stats.py`: 6節目の表を読み、期間の集計（予定の達成・活動の種類別・持ち越し）を作る
     - `summary_generator.py`: 週・月の期間、集計、サマリの作成、週末・月末に作る期間の判定
     - `ocr_utils.py`: 画面OCR処理
     - `app_utils.py`: アプリ名取得
