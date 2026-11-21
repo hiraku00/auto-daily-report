@@ -5,6 +5,8 @@ import sys
 
 from src.claude_runner import ClaudeError, run_claude
 from src.dashboard_sync import DashboardSyncError, send_reports
+from src.morning_page import DIR_ENV, load_morning_context, morning_page_dir
+from src.reflection import append_reflection, build_reflection_prompt, extract_reflection
 from src.report_generator import ReportError, build_prompt, finish_report
 from src.summary_generator import due_periods
 from summarize import create_and_send
@@ -40,30 +42,78 @@ def target_dates(args):
     return [start + datetime.timedelta(days=i) for i in range((end - start).days + 1)]
 
 
+def report_path(date):
+    return os.path.join(OUTPUT_DIR, f"daily_report_{date.isoformat()}.md")
+
+
+def morning_dir(args):
+    """モーニングページのフォルダ。--no-morning か未設定なら None（6節目を付けない）。"""
+    if args.no_morning:
+        return None
+    base = morning_page_dir()
+    if base and not os.path.isdir(base):
+        print(f"{DIR_ENV}（{base}）がフォルダではないので、モーニングページは使いません")
+        return None
+    return base
+
+
+def load_context(date, base):
+    context = load_morning_context(date, base)
+    for notice in context.notices:
+        print(f"  {notice}")
+    return context
+
+
+def add_reflection(date, report, base, model=None):
+    """日報に6節目「予定と振り返り」を付けて返す。モーニングページの予定も振り返りも無ければ ReportError。"""
+    context = load_context(date, base)
+    if context.empty:
+        raise ReportError("モーニングページの予定も振り返りも見つからないので、6節目を書けません")
+    print(f"{date.isoformat()} の6節目（予定と振り返り）を Claude に書かせています...")
+    body = extract_reflection(run_claude(build_reflection_prompt(date.isoformat(), report, context), model=model))
+    if context.retro is None and date + datetime.timedelta(days=1) >= datetime.date.today():
+        print(f"  翌朝の振り返りが無いまま書きました。サマリを貼ったら次で書き直せます: python daily_report.py --date {date:%y%m%d} --morning-only")
+    return append_reflection(report, context, body)
+
+
+def save_and_sync(date, path, report, args):
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(report)
+    print(f"日報を保存しました: {path}")
+    if args.no_sync:
+        return
+    # 送信に失敗しても日報は保存済みなので、失敗扱いにはせず、送り直す方法だけ示す
+    try:
+        print_summary(send_reports([(date.isoformat(), path)]))
+    except DashboardSyncError as e:
+        print(f"dashboard への送信に失敗しました: {e}\n  送り直すには: python sync_dashboard.py {date:%y%m%d}")
+
+
 def make_report(date, args):
-    """1日分の日報を作って保存し、dashboard への送信と週末・月末のサマリまで行う。"""
+    """1日分の日報を作って保存し、モーニングページの6節目、dashboard への送信、週末・月末のサマリまで行う。"""
     target_date = date.isoformat()
-    output_path = os.path.join(OUTPUT_DIR, f"daily_report_{target_date}.md")
+    output_path = report_path(date)
     header, prompt = build_prompt(target_date)
+    base = morning_dir(args)
 
     if args.dry_run:
         print(prompt)
+        if base:
+            # 段2のプロンプトは日報ができてから作るので、ここでは抜き出したモーニングページだけを見せる
+            context = load_context(date, base)
+            print(f"\n===== 6節目に使うモーニングページ =====\n## 予定\n{context.plan or '（なし）'}\n\n## 振り返り\n{context.retro or '（なし）'}\n\n## 気になること\n{context.thoughts or '（なし）'}")
         return
 
     print(f"{target_date} の日報を Claude に書かせています（数分かかります）...")
     report = finish_report(header, run_claude(prompt, model=args.model))
-
-    os.makedirs(OUTPUT_DIR, exist_ok=True)
-    with open(output_path, "w", encoding="utf-8") as f:
-        f.write(report)
-    print(f"日報を保存しました: {output_path}")
-
-    if not args.no_sync:
-        # 送信に失敗しても日報は保存済みなので、失敗扱いにはせず、送り直す方法だけ示す
+    if base:
+        # 6節目が書けなくても、1〜5節の日報は保存して送る
         try:
-            print_summary(send_reports([(target_date, output_path)]))
-        except DashboardSyncError as e:
-            print(f"dashboard への送信に失敗しました: {e}\n  送り直すには: python sync_dashboard.py {date:%y%m%d}")
+            report = add_reflection(date, report, base, model=args.model)
+        except (ClaudeError, ReportError) as e:
+            print(f"6節目（予定と振り返り）を付けられませんでした: {e}\n  あとで足すには: python daily_report.py --date {date:%y%m%d} --morning-only")
+    save_and_sync(date, output_path, report, args)
 
     if args.no_summary:
         return
@@ -73,6 +123,27 @@ def make_report(date, args):
             create_and_send(period, model=args.model, sync=not args.no_sync)
         except (ClaudeError, ReportError) as e:
             print(f"{period.name}のサマリを作れませんでした: {e}\n  作り直すには: python summarize.py {period.kind} {period.start:%y%m%d}")
+
+
+def add_morning_only(date, args):
+    """既にある日報の1〜5節はそのままに、6節目だけを付け直して保存・送信する。"""
+    output_path = report_path(date)
+    if not os.path.exists(output_path):
+        raise ReportError(f"{output_path} がありません（先に日報を作ってください）")
+    base = morning_dir(args)
+    if not base:
+        sys.exit(f"Error: --morning-only には .env の {DIR_ENV}（モーニングページのフォルダ）が必要です")
+    with open(output_path, encoding="utf-8") as f:
+        report = f.read()
+    if args.dry_run:
+        print(build_reflection_prompt(date.isoformat(), report, load_context(date, base)))
+        return
+    save_and_sync(date, output_path, add_reflection(date, report, base, model=args.model), args)
+
+
+def blocks_overwrite(path, args):
+    """日報を作り直すことになるのに --force が無い。--morning-only は既にある日報に足すので止めない。"""
+    return os.path.exists(path) and not (args.force or args.dry_run or args.morning_only)
 
 
 def main():
@@ -85,15 +156,20 @@ def main():
     parser.add_argument("--dry-run", action="store_true", help="Claude に送らず、プロンプトを標準出力に表示するだけ。")
     parser.add_argument("--no-sync", action="store_true", help="保存した日報・サマリを dashboard へ送らない。")
     parser.add_argument("--no-summary", action="store_true", help="週末・月末のサマリを作らない。")
+    parser.add_argument("--no-morning", action="store_true", help="モーニングページから6節目（予定と振り返り）を書き足さない。")
+    parser.add_argument("--morning-only", action="store_true", help="既にある日報の1〜5節はそのままに、6節目だけを付け直す（週・月のサマリは作らない）。")
     args = parser.parse_args()
+    if args.no_morning and args.morning_only:
+        sys.exit("Error: --no-morning と --morning-only は一緒に指定できません")
+    run = add_morning_only if args.morning_only else make_report
 
     dates = target_dates(args)
     if len(dates) == 1:
-        output_path = os.path.join(OUTPUT_DIR, f"daily_report_{dates[0].isoformat()}.md")
-        if os.path.exists(output_path) and not args.force and not args.dry_run:
-            sys.exit(f"Error: {output_path} は既にあります。作り直すときは --force を付けてください。")
+        output_path = report_path(dates[0])
+        if blocks_overwrite(output_path, args):
+            sys.exit(f"Error: {output_path} は既にあります。作り直すときは --force を、6節目だけ付け直すときは --morning-only を付けてください。")
         try:
-            make_report(dates[0], args)
+            run(dates[0], args)
         except (ClaudeError, ReportError) as e:
             sys.exit(f"Error: {e}")
         return
@@ -101,13 +177,13 @@ def main():
     # 複数日の指定では、1日失敗しても残りの日は続け、最後に結果をまとめる
     done, skipped, failed = [], [], []
     for date in dates:
-        output_path = os.path.join(OUTPUT_DIR, f"daily_report_{date.isoformat()}.md")
-        if os.path.exists(output_path) and not args.force and not args.dry_run:
+        output_path = report_path(date)
+        if blocks_overwrite(output_path, args):
             print(f"{date.isoformat()}: 日報が既にあるので飛ばします（作り直すときは --force）")
             skipped.append(date)
             continue
         try:
-            make_report(date, args)
+            run(date, args)
             done.append(date)
         except (ClaudeError, ReportError) as e:
             print(f"{date.isoformat()}: 日報を作れませんでした: {e}")
