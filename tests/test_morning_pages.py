@@ -51,6 +51,15 @@ def test_header_reads_time_and_place_and_drops_outliers():
     assert mp.parse_header("|時間|8:57 ~ 9:( m)|\n") == ("08:57", None, 30, "")
     assert mp.parse_header("|時間|8:57 ~ |\n") == ("08:57", None, 30, "")
     assert mp.parse_header("本文だけ") == (None, None, None, "")
+    # 24時を超えた時刻は翌日の同じ時刻として読む(25:23 → 01:23)。所要分は書かれた時刻の差
+    assert mp.parse_header("| 時間 | 25:23 ~ 25:48(23 min) |") == ("01:23", "01:48", 25, "")
+    assert mp.parse_header("|時間|25:50 ~ 26:13(23 min)|") == ("01:50", "02:13", 23, "")
+    assert mp.parse_header("|時間|25:10 ~ 25:( min)|") == ("01:10", None, 30, "")
+    assert mp.parse_header("|時間|23:50 ~ 24:10(20 min)|") == ("23:50", "00:10", 20, "")
+    # 複数の区間は、最初の開始・最後の終了・所要分の合計（2+40=42）。読めない区間は無視する
+    assert mp.parse_header("| 時間 | 10:00 ~ 10:02(2 m)<br>10:10 ~ 10:50(40 m) |\n| 場所 | Focus3 |\n") == ("10:00", "10:50", 42, "Focus3")
+    assert mp.parse_header("|時間|15:35 ~ 15:50(15 min) <br>16:06 ~ 16:21(15 min)|") == ("15:35", "16:21", 30, "")
+    assert mp.parse_header("| 時間 | 10:36 ~ 10:56(20 m)<br>11: ~ 11:( m) |") == ("10:36", "10:56", 20, "")
 
 
 def test_chars_count_the_body_without_url_lines_or_spaces():

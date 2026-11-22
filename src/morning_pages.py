@@ -55,23 +55,33 @@ def page_path(base_dir, date):
 
 def parse_header(text):
     """ヘッダーの表から (開始, 終了, 所要分, 場所) を読む。読めない値は None / 空文字。
-    終了時刻が書かれていない(書きかけの)ページは、開始時刻だけ読み、所要分は MISSING_END_MINUTES とみなす。"""
+    「時間」の欄が `10:00 ~ 10:02(2 m)<br>10:10 ~ 10:50(40 m)` のように複数の区間なら、開始は最初の区間、終了は最後の区間、
+    所要分は区間の合計(2+40=42)。読めない区間は無視する。
+    終了時刻が書かれていない(書きかけの)区間は、所要分を MISSING_END_MINUTES とみなす(終了は不明のまま)。
+    「25:23 ~ 25:48」のように24時を超えた時刻(深夜の続きの書き方)は、翌日の同じ時刻(01:23)として読む。
+    どれかの区間が MAX_MINUTES を超えるときは、書き間違いとして所要分だけ使わない(時刻は残す)。"""
     started = ended = minutes = None
-    match = re.search(r"\|\s*時間\s*\|\s*(\d{1,2}):(\d{2})\s*~\s*(?:(\d{1,2}):(\d{2}))?", text)
-    if match:
+    cell = re.search(r"\|\s*時間\s*\|([^|\n]*)", text)
+    spans = []
+    for part in re.split(r"<br\s*/?>", cell.group(1)) if cell else []:
+        match = re.match(r"\s*(\d{1,2}):(\d{2})\s*~\s*(?:(\d{1,2}):(\d{2}))?", part)
+        if not match:
+            continue
         sh, sm = int(match.group(1)), int(match.group(2))
-        if sh < 24 and sm < 60:
-            started = f"{sh:02d}:{sm:02d}"
-            if match.group(3) is None:
-                minutes = MISSING_END_MINUTES
-            else:
-                eh, em = int(match.group(3)), int(match.group(4))
-                if eh < 24 and em < 60:
-                    ended = f"{eh:02d}:{em:02d}"
-                    span = ((eh * 60 + em) - (sh * 60 + sm)) % 1440
-                    minutes = span if span <= MAX_MINUTES else None
-                else:
-                    started = None
+        if sh >= 48 or sm >= 60:
+            continue
+        start = f"{sh % 24:02d}:{sm:02d}"
+        if match.group(3) is None:
+            spans.append((start, None, MISSING_END_MINUTES))
+            continue
+        eh, em = int(match.group(3)), int(match.group(4))
+        if eh >= 48 or em >= 60:
+            continue
+        span = ((eh * 60 + em) - (sh * 60 + sm)) % 1440
+        spans.append((start, f"{eh % 24:02d}:{em:02d}", span if span <= MAX_MINUTES else None))
+    if spans:
+        started, ended = spans[0][0], spans[-1][1]
+        minutes = None if any(span[2] is None for span in spans) else sum(span[2] for span in spans)
     place = re.search(r"\|\s*場所\s*\|\s*([^|]*?)\s*\|", text)
     return started, ended, minutes, place.group(1).strip() if place else ""
 
