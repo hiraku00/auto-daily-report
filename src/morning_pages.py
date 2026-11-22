@@ -20,6 +20,8 @@ MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", 
 CACHE_DIR = os.path.join("outputs", "morning_pages")
 # 1ページの所要時間がこれを超えるときは、ヘッダーの書き間違い（日付をまたぐなど）として使わない
 MAX_MINUTES = 240
+# 終了時刻を書き忘れた(「8:57 ~ 9:( m)」のような)ページの所要時間。開始時刻だけ残し、終了は不明のままにする
+MISSING_END_MINUTES = 30
 MAX_ITEMS = 16
 MAX_ITEM_CHARS = 400
 MAX_BODY_CHARS = 14000
@@ -52,15 +54,24 @@ def page_path(base_dir, date):
 
 
 def parse_header(text):
-    """ヘッダーの表から (開始, 終了, 所要分, 場所) を読む。読めない値は None / 空文字。"""
+    """ヘッダーの表から (開始, 終了, 所要分, 場所) を読む。読めない値は None / 空文字。
+    終了時刻が書かれていない(書きかけの)ページは、開始時刻だけ読み、所要分は MISSING_END_MINUTES とみなす。"""
     started = ended = minutes = None
-    match = re.search(r"\|\s*時間\s*\|\s*(\d{1,2}):(\d{2})\s*~\s*(\d{1,2}):(\d{2})", text)
+    match = re.search(r"\|\s*時間\s*\|\s*(\d{1,2}):(\d{2})\s*~\s*(?:(\d{1,2}):(\d{2}))?", text)
     if match:
-        sh, sm, eh, em = (int(g) for g in match.groups())
-        if sh < 24 and eh < 24 and sm < 60 and em < 60:
-            started, ended = f"{sh:02d}:{sm:02d}", f"{eh:02d}:{em:02d}"
-            span = ((eh * 60 + em) - (sh * 60 + sm)) % 1440
-            minutes = span if span <= MAX_MINUTES else None
+        sh, sm = int(match.group(1)), int(match.group(2))
+        if sh < 24 and sm < 60:
+            started = f"{sh:02d}:{sm:02d}"
+            if match.group(3) is None:
+                minutes = MISSING_END_MINUTES
+            else:
+                eh, em = int(match.group(3)), int(match.group(4))
+                if eh < 24 and em < 60:
+                    ended = f"{eh:02d}:{em:02d}"
+                    span = ((eh * 60 + em) - (sh * 60 + sm)) % 1440
+                    minutes = span if span <= MAX_MINUTES else None
+                else:
+                    started = None
     place = re.search(r"\|\s*場所\s*\|\s*([^|]*?)\s*\|", text)
     return started, ended, minutes, place.group(1).strip() if place else ""
 

@@ -47,7 +47,9 @@ def test_header_reads_time_and_place_and_drops_outliers():
     # 日付をまたいだような長い所要時間は、書き間違いとして使わない（時刻は残す）
     assert mp.parse_header("|時間|23:50 ~ 18:10 (x)|\n|場所|ホテル|\n") == ("23:50", "18:10", None, "ホテル")
     # 2026年の「9:( m)」のような壊れた欄は、読めない
-    assert mp.parse_header("|時間|8:57 ~ 9:( m)|\n") == (None, None, None, "")
+    # 終了時刻を書き忘れたページは、開始時刻だけ読み、所要分は30分とみなす
+    assert mp.parse_header("|時間|8:57 ~ 9:( m)|\n") == ("08:57", None, 30, "")
+    assert mp.parse_header("|時間|8:57 ~ |\n") == ("08:57", None, 30, "")
     assert mp.parse_header("本文だけ") == (None, None, None, "")
 
 
