@@ -141,3 +141,91 @@ def test_due_periods_follow_sundays_and_month_ends_and_catch_up_once(tmp_path):
     assert due(D(2026, 10, 7)) == [("week", D(2026, 9, 28))]
     (summaries / "weekly" / "weekly_2026-09-28.md").write_text("x", encoding="utf-8")
     assert due(D(2026, 10, 7)) == []
+
+
+# 6節目「予定と振り返り」(モーニングページから書き足した、表の形のもの)
+REFLECTION = """
+
+## 6. 予定と振り返り
+
+> モーニングページ: 当日朝（10/13）の予定・翌朝（10/14）の振り返り
+
+### 予定と実績
+
+| 予定 | 結果 | 状態 |
+|---|---|---|
+| 図書館で本を返す | 午前に行った | 済 |
+| ブログを書く | 下書きまで | 一部 |
+| 電子工作の学習 | 手を付けていない | 未 |
+| ルーターの設定 | 15時頃から | 予定外 |
+
+### PCの外の活動
+
+| 時刻 | 活動 | 種類 |
+|---|---|---|
+| 12:30頃 | 昼食 | 食事 |
+| 18:00頃 | 筋トレ | 運動 |
+
+### 気になったこと・持ち越し
+
+- [持ち越し] ブログの続きを書く
+- [気がかり] 自転車のタイヤの空気が少ない
+"""
+
+
+def write_with_reflection(tmp_path, day, extra=REFLECTION):
+    write(tmp_path, day)
+    path = tmp_path / f"daily_report_{day:%Y-%m-%d}.md"
+    path.write_text(path.read_text(encoding="utf-8") + extra, encoding="utf-8")
+
+
+def test_reflection_stats_counts_statuses_kinds_and_notes():
+    from src.reflection_stats import reflection_stats
+
+    body = REFLECTION.split("## 6. 予定と振り返り\n", 1)[1]
+    stats = reflection_stats({D(2026, 10, 13): body, D(2026, 10, 14): body})
+    assert "予定と振り返りのある日: 2日（うち表の形で読めた日 2日）" in stats
+    assert "予定6件のうち 済2・一部2・未2・記録なし0（済の割合 33%）。予定外 2件" in stats
+    assert "PCの外の活動: 食事2件、運動2件" in stats
+    assert "持ち越し 2件、気がかり 2件" in stats
+    assert "整理されていない" not in stats
+
+
+def test_reflection_stats_flags_days_read_from_the_raw_body():
+    from src.reflection_stats import reflection_stats
+
+    raw = "> モーニングページ: 当日朝（1/15）の本文・翌朝（1/16）の本文から\n\n### 予定と実績\n\n- 散歩 → 行った\n"
+    stats = reflection_stats({D(2026, 1, 15): raw})
+    assert "うち表の形で読めた日 0日" in stats and "1日は整理されていないモーニングページの本文から読んだ" in stats
+    assert reflection_stats({}) == ""
+
+
+def test_weekly_prompt_has_full_reflection_and_its_stats(tmp_path):
+    write_with_reflection(tmp_path, D(2026, 10, 13))
+    period = Period.week_of(D(2026, 10, 13))
+    _, prompt = build_summary_prompt(period, load_reports(period, str(tmp_path)))
+    assert "### 予定と振り返り" in prompt and "| 図書館で本を返す | 午前に行った | 済 |" in prompt
+    assert "- 予定の達成: 予定3件のうち 済1・一部1・未1・記録なし0（済の割合 33%）。予定外 1件" in prompt
+    # 日報内の小見出しは日付・節より下の階層にする
+    assert "#### 予定と実績" in prompt
+
+
+def test_monthly_prompt_gets_only_the_notes_of_the_reflection(tmp_path):
+    write_with_reflection(tmp_path, D(2026, 10, 13))
+    period = Period.month_of(D(2026, 10, 1))
+    _, prompt = build_summary_prompt(period, load_reports(period, str(tmp_path)))
+    assert "### 予定と振り返り（持ち越し・気がかり）\n- [持ち越し] ブログの続きを書く\n- [気がかり] 自転車のタイヤの空気が少ない" in prompt
+    assert "| 図書館で本を返す |" not in prompt
+    assert "- 予定の達成:" in prompt
+
+
+def test_prompt_without_reflections_has_no_reflection_lines(tmp_path):
+    write(tmp_path, D(2026, 10, 13))
+    period = Period.week_of(D(2026, 10, 13))
+    _, prompt = build_summary_prompt(period, load_reports(period, str(tmp_path)))
+    assert "予定の達成" not in prompt.split("# 期間の集計")[1] and "### 予定と振り返り" not in prompt
+
+
+def test_finish_summary_keeps_an_optional_section6():
+    body = "\n\n".join(f"## {n}. {t}\n- x" for n, t in [(1, "概要"), (2, "主な取り組み"), (3, "成果・進捗"), (4, "得られた知見"), (5, "次に向けて"), (6, "予定と振り返り")])
+    assert finish_summary("# 週次サマリ", body).rstrip().endswith("## 6. 予定と振り返り\n- x")
