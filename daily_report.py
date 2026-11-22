@@ -57,16 +57,16 @@ def morning_dir(args):
     return base
 
 
-def load_context(date, base):
-    context = load_morning_context(date, base)
+def load_context(date, base, raw=False):
+    context = load_morning_context(date, base, raw=raw)
     for notice in context.notices:
         print(f"  {notice}")
     return context
 
 
-def add_reflection(date, report, base, model=None):
+def add_reflection(date, report, base, model=None, raw=False):
     """日報に6節目「予定と振り返り」を付けて返す。モーニングページの予定も振り返りも無ければ ReportError。"""
-    context = load_context(date, base)
+    context = load_context(date, base, raw=raw)
     if context.empty:
         raise ReportError("モーニングページの予定も振り返りも見つからないので、6節目を書けません")
     print(f"{date.isoformat()} の6節目（予定と振り返り）を Claude に書かせています...")
@@ -101,7 +101,7 @@ def make_report(date, args):
         print(prompt)
         if base:
             # 段2のプロンプトは日報ができてから作るので、ここでは抜き出したモーニングページだけを見せる
-            context = load_context(date, base)
+            context = load_context(date, base, raw=args.raw_morning)
             print(f"\n===== 6節目に使うモーニングページ =====\n## 予定\n{context.plan or '（なし）'}\n\n## 振り返り\n{context.retro or '（なし）'}\n\n## 気になること\n{context.thoughts or '（なし）'}")
         return
 
@@ -110,7 +110,7 @@ def make_report(date, args):
     if base:
         # 6節目が書けなくても、1〜5節の日報は保存して送る
         try:
-            report = add_reflection(date, report, base, model=args.model)
+            report = add_reflection(date, report, base, model=args.model, raw=args.raw_morning)
         except (ClaudeError, ReportError) as e:
             print(f"6節目（予定と振り返り）を付けられませんでした: {e}\n  あとで足すには: python daily_report.py --date {date:%y%m%d} --morning-only")
     save_and_sync(date, output_path, report, args)
@@ -136,9 +136,9 @@ def add_morning_only(date, args):
     with open(output_path, encoding="utf-8") as f:
         report = f.read()
     if args.dry_run:
-        print(build_reflection_prompt(date.isoformat(), report, load_context(date, base)))
+        print(build_reflection_prompt(date.isoformat(), report, load_context(date, base, raw=args.raw_morning)))
         return
-    save_and_sync(date, output_path, add_reflection(date, report, base, model=args.model), args)
+    save_and_sync(date, output_path, add_reflection(date, report, base, model=args.model, raw=args.raw_morning), args)
 
 
 def blocks_overwrite(path, args):
@@ -158,7 +158,10 @@ def main():
     parser.add_argument("--no-summary", action="store_true", help="週末・月末のサマリを作らない。")
     parser.add_argument("--no-morning", action="store_true", help="モーニングページから6節目（予定と振り返り）を書き足さない。")
     parser.add_argument("--morning-only", action="store_true", help="既にある日報の1〜5節はそのままに、6節目だけを付け直す（週・月のサマリは作らない）。")
+    parser.add_argument("--raw-morning", action="store_true", help="整理された節の無い古いモーニングページは、本文そのものから6節目を書かせる（過去分を作るとき用）。")
     args = parser.parse_args()
+    if args.raw_morning and args.no_morning:
+        sys.exit("Error: --raw-morning と --no-morning は一緒に指定できません")
     if args.no_morning and args.morning_only:
         sys.exit("Error: --no-morning と --morning-only は一緒に指定できません")
     run = add_morning_only if args.morning_only else make_report

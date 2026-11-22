@@ -167,7 +167,7 @@ def test_append_replaces_existing_section6(tmp_path):
 
 def cli_args(**overrides):
     values = dict(date=None, date_from=None, date_to=None, model=None, force=False, dry_run=False,
-                  no_sync=True, no_summary=True, no_morning=False, morning_only=False)
+                  no_sync=True, no_summary=True, no_morning=False, morning_only=False, raw_morning=False)
     values.update(overrides)
     return argparse.Namespace(**values)
 
@@ -212,3 +212,55 @@ def test_morning_only_does_not_block_on_existing_report(tmp_path):
     path.write_text("x", encoding="utf-8")
     assert daily_report.blocks_overwrite(str(path), cli_args())
     assert not daily_report.blocks_overwrite(str(path), cli_args(morning_only=True))
+
+
+# 整理された節の無い古いページ（本文だけ。URL の行を含む）
+OLD_PLAN_PAGE = """---
+created: 2026-03-10
+---
+
+## 本文
+
+昨日は遅くまで動画を見てしまった。今日は図書館に行って、午後はブログを書く。
+[https://example.com/a](https://example.com/a)
+https://example.com/b
+
+【ToDo】
+○今日
+- ブログ
+"""
+
+OLD_RETRO_PAGE = """## 本文
+
+昨日は図書館に行って、昼はカレー。ブログは書けなかった。
+"""
+
+
+def test_raw_mode_uses_the_body_when_there_are_no_sections(tmp_path):
+    write_page(tmp_path, DATE, OLD_PLAN_PAGE)
+    write_page(tmp_path, DATE + datetime.timedelta(days=1), OLD_RETRO_PAGE)
+    # 既定（毎朝の実行）では本文を使わない
+    assert load_morning_context(DATE, str(tmp_path)).empty
+    context = load_morning_context(DATE, str(tmp_path), raw=True)
+    assert context.plan_raw and context.retro_raw
+    assert context.plan.startswith("昨日は遅くまで") and "【ToDo】" in context.plan
+    assert "example.com" not in context.plan and "created" not in context.plan
+    assert context.retro == "昨日は図書館に行って、昼はカレー。ブログは書けなかった。"
+    assert context.source_line() == "> モーニングページ: 当日朝（3/10）の本文・翌朝（3/11）の本文から"
+    prompt = build_reflection_prompt("2026-03-10", REPORT, context)
+    assert "この日のモーニングページは整理されていない" in prompt
+    assert "（本文）\n\n昨日は図書館に行って" in prompt
+
+
+def test_raw_mode_still_prefers_organized_sections(tmp_path):
+    write_page(tmp_path, DATE, PLAN_PAGE)
+    write_page(tmp_path, DATE + datetime.timedelta(days=1), OLD_RETRO_PAGE)
+    context = load_morning_context(DATE, str(tmp_path), raw=True)
+    assert not context.plan_raw and "図書館**で本を返す" in context.plan
+    assert context.retro_raw
+    assert context.source_line() == "> モーニングページ: 当日朝（3/10）の予定・翌朝（3/11）の本文から"
+
+
+def test_prompt_has_no_raw_note_for_organized_pages(tmp_path):
+    prompt = build_reflection_prompt("2026-03-10", REPORT, context_with_both(tmp_path))
+    assert "整理されていない" not in prompt and "{raw_note}" not in prompt

@@ -25,6 +25,10 @@ RETRO_RE = re.compile(r"^昨日.*振り返り")
 THOUGHTS_RE = re.compile(r"^(気になること|内省)")
 # 「今日（10/8）の状況」「新居のこと・今日の予定」のように、予定の節の名前は揺れる
 PLAN_RE = re.compile(r"^今日|今日の予定")
+# 本文だけのページを読むとき、本文の始まりとする見出し（「## 本文」「# 【本文】」）
+BODY_HEADING_RE = re.compile(r"^#{1,3}\s*【?本文】?\s*$", re.MULTILINE)
+# URL だけの行（貼り付けたリンク）は、予定・振り返りの手がかりにならないので除く
+URL_ONLY_RE = re.compile(r"^\s*(?:[-*]\s*)?\[?<?https?://\S+?>?\]?(?:\(https?://\S+\))?\s*$")
 # 見出しの「（11/20・金）」「（9/6）」の日付
 HEADING_DATE_RE = re.compile(r"[（(]\s*(\d{1,2})\s*/\s*(\d{1,2})")
 
@@ -32,13 +36,20 @@ HEADING_DATE_RE = re.compile(r"[（(]\s*(\d{1,2})\s*/\s*(\d{1,2})")
 class MorningContext:
     """日報の6節目を書くための材料。どれも見つからなければ None。"""
 
-    def __init__(self, date, plan=None, retro=None, thoughts=None, notices=None):
+    def __init__(self, date, plan=None, retro=None, thoughts=None, notices=None, plan_raw=False, retro_raw=False):
         self.date = date
         self.plan = plan
         self.retro = retro
         self.thoughts = thoughts
+        # 整理された節が無く、ページの本文そのものを入れた（--raw-morning）
+        self.plan_raw = plan_raw
+        self.retro_raw = retro_raw
         # 見つからなかった・使わなかった理由（画面に出す）
         self.notices = notices or []
+
+    @property
+    def raw(self):
+        return self.plan_raw or self.retro_raw
 
     @property
     def empty(self):
@@ -50,10 +61,11 @@ class MorningContext:
         # 「11/21の振り返り」だと 11/21 を振り返ったように読めるので、どちらも対象日（D 日）についての話だと分かる書き方にする
         parts = []
         if self.plan is not None:
-            parts.append(f"当日朝（{_short(self.date)}）の予定")
+            parts.append(f"当日朝（{_short(self.date)}）の{'本文' if self.plan_raw else '予定'}")
         if self.retro is not None:
-            parts.append(f"翌朝（{_short(next_day)}）の振り返り")
-        return "> モーニングページ: " + "・".join(parts)
+            parts.append(f"翌朝（{_short(next_day)}）の{'本文' if self.retro_raw else '振り返り'}")
+        # 本文から読んだ日は、整理された節から読んだ日より確かさが落ちることを分かるようにする
+        return "> モーニングページ: " + "・".join(parts) + ("から" if self.raw else "")
 
 
 def morning_page_dir():
@@ -101,8 +113,19 @@ def heading_date_matches(title, date):
     return (int(match.group(1)), int(match.group(2))) == (date.month, date.day)
 
 
-def load_morning_context(date, base_dir):
-    """date（D 日）の日報に使う、D 日の予定と D+1 日の振り返りを読む。"""
+def page_body(text):
+    """整理された節の無いページの本文（「本文」の見出しの後ろ）から、URL だけの行と空行を除いたもの。"""
+    match = BODY_HEADING_RE.search(text)
+    body = text[match.end():] if match else text
+    lines = [line for line in body.split("\n") if line.strip() and not URL_ONLY_RE.match(line)]
+    return _clip("\n".join(lines)) if lines else None
+
+
+def load_morning_context(date, base_dir, raw=False):
+    """date（D 日）の日報に使う、D 日の予定と D+1 日の振り返りを読む。
+
+    raw=True なら、整理された節（「今日の予定」「昨日の振り返り」）が無いページは、本文そのものを使う。
+    サマリを作る前の古いページ用で、毎朝の実行では使わない（貼る前の音声の文字起こしを使ってしまうため）。"""
     next_day = date + datetime.timedelta(days=1)
     context = MorningContext(date)
 
@@ -111,7 +134,10 @@ def load_morning_context(date, base_dir):
         context.notices.append(f"{_short(date)}のモーニングページがありません（予定は使いません）")
     else:
         found = find_section(level2_sections(plan_page), PLAN_RE)
-        if found is None:
+        if found is None and raw and page_body(plan_page):
+            context.plan, context.plan_raw = page_body(plan_page), True
+            context.notices.append(f"{_short(date)}のページに「今日の予定」の節が無いので、本文を使います")
+        elif found is None:
             context.notices.append(f"{_short(date)}のモーニングページに「今日の予定」の節がありません")
         elif not heading_date_matches(found[0], date):
             context.notices.append(f"{_short(date)}のページの予定の見出し（{found[0]}）の日付が違うので使いません")
@@ -124,7 +150,10 @@ def load_morning_context(date, base_dir):
     else:
         sections = level2_sections(retro_page)
         found = find_section(sections, RETRO_RE)
-        if found is None:
+        if found is None and raw and page_body(retro_page):
+            context.retro, context.retro_raw = page_body(retro_page), True
+            context.notices.append(f"{_short(next_day)}のページに「昨日の振り返り」の節が無いので、本文を使います")
+        elif found is None:
             context.notices.append(f"{_short(next_day)}のモーニングページに「昨日の振り返り」の節がありません（サマリをまだ貼っていない？）")
         elif not heading_date_matches(found[0], date):
             # 前の日にページを書かなかったときなど、「昨日」が D 日でないことがある
