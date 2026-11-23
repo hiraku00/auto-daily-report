@@ -4,8 +4,9 @@ import os
 import sys
 
 from src.claude_runner import ClaudeError, run_claude
-from src.dashboard_sync import DashboardSyncError, send_reports
+from src.dashboard_sync import DashboardSyncError, send_morning_pages, send_reports
 from src.morning_page import DIR_ENV, load_morning_context, morning_page_dir
+from src.morning_pages import make_record, needs_extraction
 from src.reflection import append_reflection, build_reflection_prompt, extract_reflection
 from src.report_generator import ReportError, build_prompt, finish_report
 from src.summary_generator import due_periods
@@ -90,6 +91,32 @@ def save_and_sync(date, path, report, args):
         print(f"dashboard への送信に失敗しました: {e}\n  送り直すには: python sync_dashboard.py {date:%y%m%d}")
 
 
+def record_morning_pages(date, base, args):
+    """6節目に使う当日朝(D)と翌朝(D+1)のページ1枚ごとの記録を作り、dashboard の「モーニングページ」画面へ送る。
+    ヘッダーだけの記録は Claude を使わないので毎回読み直す(あとで書き足したページの時間・文字数を反映する)。
+    記録を作れなくても日報は保存済みなので、止めずに作り直す方法だけ示す。"""
+    days = [d for d in (date, date + datetime.timedelta(days=1)) if d <= datetime.date.today()]
+    retry = "python morning_pages.py --date " + " ".join(f"{d:%y%m%d}" for d in days)
+    records = []
+    for day in days:
+        try:
+            record = make_record(day, base, force=not needs_extraction(day), model=args.model)
+        except (ClaudeError, OSError) as e:
+            print(f"モーニングページ {day.isoformat()} の記録を作れませんでした: {e}\n  作り直すには: {retry}")
+            continue
+        if record is not None:
+            records.append(record)
+    if not records:
+        return
+    print("モーニングページの記録を作りました: " + ", ".join(r["date"] for r in records))
+    if args.no_sync:
+        return
+    try:
+        print_summary(send_morning_pages(records))
+    except DashboardSyncError as e:
+        print(f"モーニングページの記録の送信に失敗しました: {e}\n  送り直すには: {retry}")
+
+
 def make_report(date, args):
     """1日分の日報を作って保存し、モーニングページの6節目、dashboard への送信、週末・月末のサマリまで行う。"""
     target_date = date.isoformat()
@@ -114,6 +141,8 @@ def make_report(date, args):
         except (ClaudeError, ReportError) as e:
             print(f"6節目（予定と振り返り）を付けられませんでした: {e}\n  あとで足すには: python daily_report.py --date {date:%y%m%d} --morning-only")
     save_and_sync(date, output_path, report, args)
+    if base:
+        record_morning_pages(date, base, args)
 
     if args.no_summary:
         return
@@ -139,6 +168,7 @@ def add_morning_only(date, args):
         print(build_reflection_prompt(date.isoformat(), report, load_context(date, base, raw=args.raw_morning)))
         return
     save_and_sync(date, output_path, add_reflection(date, report, base, model=args.model, raw=args.raw_morning), args)
+    record_morning_pages(date, base, args)
 
 
 def blocks_overwrite(path, args):
