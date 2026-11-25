@@ -86,33 +86,32 @@ def save_and_sync(date, path, report, args):
         return
     # 送信に失敗しても日報は保存済みなので、失敗扱いにはせず、送り直す方法だけ示す
     try:
-        print_summary(send_reports([(date.isoformat(), path)]))
+        print_summary(send_reports([(date.isoformat(), path)]), label="日報")
     except DashboardSyncError as e:
         print(f"dashboard への送信に失敗しました: {e}\n  送り直すには: python sync_dashboard.py {date:%y%m%d}")
 
 
 def record_morning_pages(date, base, args):
-    """6節目に使う当日朝(D)と翌朝(D+1)のページ1枚ごとの記録を作り、dashboard の「モーニングページ」画面へ送る。
+    """6節目に使う翌朝(D+1)のページの記録を作り、dashboard の「モーニングページ」画面へ送る。
+    毎日実行すれば当日朝(D)のページは前日の日報で送り済みなので、1回の実行で送るのは翌朝の1枚だけにする。
     ヘッダーだけの記録は Claude を使わないので毎回読み直す(あとで書き足したページの時間・文字数を反映する)。
     記録を作れなくても日報は保存済みなので、止めずに作り直す方法だけ示す。"""
-    days = [d for d in (date, date + datetime.timedelta(days=1)) if d <= datetime.date.today()]
-    retry = "python morning_pages.py --date " + " ".join(f"{d:%y%m%d}" for d in days)
-    records = []
-    for day in days:
-        try:
-            record = make_record(day, base, force=not needs_extraction(day), model=args.model)
-        except (ClaudeError, OSError) as e:
-            print(f"モーニングページ {day.isoformat()} の記録を作れませんでした: {e}\n  作り直すには: {retry}")
-            continue
-        if record is not None:
-            records.append(record)
-    if not records:
+    day = date + datetime.timedelta(days=1)
+    if day > datetime.date.today():
         return
-    print("モーニングページの記録を作りました: " + ", ".join(r["date"] for r in records))
+    retry = f"python morning_pages.py --date {day:%y%m%d}"
+    try:
+        record = make_record(day, base, force=not needs_extraction(day), model=args.model)
+    except (ClaudeError, OSError) as e:
+        print(f"モーニングページ {day.isoformat()}（翌朝）の記録を作れませんでした: {e}\n  作り直すには: {retry}")
+        return
+    if record is None:
+        return
+    print(f"モーニングページの記録を作りました: {day.isoformat()}（翌朝）")
     if args.no_sync:
         return
     try:
-        print_summary(send_morning_pages(records))
+        print_summary(send_morning_pages([record]), label="モーニングページ", show_skipped=True)
     except DashboardSyncError as e:
         print(f"モーニングページの記録の送信に失敗しました: {e}\n  送り直すには: {retry}")
 

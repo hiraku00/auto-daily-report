@@ -78,7 +78,7 @@ def write_page(base, date, time_cell):
     (folder / f"{date:%d}.md").write_text(f"| 時間 | {time_cell} |\n| 場所 | 自宅 |\n\n本文です。\n", encoding="utf-8")
 
 
-def test_record_morning_pages_records_day_and_next_morning(tmp_path, monkeypatch):
+def test_record_morning_pages_records_only_next_morning(tmp_path, monkeypatch):
     base = tmp_path / "pages"
     cache = tmp_path / "cache"
     day = datetime.date(2026, 11, 22)
@@ -88,11 +88,11 @@ def test_record_morning_pages_records_day_and_next_morning(tmp_path, monkeypatch
     monkeypatch.setattr(daily_report, "make_record", lambda *a, **k: real_make_record(*a, cache_dir=str(cache), **k))
     sent = []
     monkeypatch.setattr(daily_report, "send_morning_pages", lambda records: sent.extend(records) or {})
-    monkeypatch.setattr(daily_report, "print_summary", lambda _result: None)
+    monkeypatch.setattr(daily_report, "print_summary", lambda *_a, **_k: None)
 
     daily_report.record_morning_pages(day, str(base), argparse.Namespace(model=None, no_sync=False))
 
-    assert [(r["date"], r["minutes"], r["extracted"]) for r in sent] == [("2026-11-22", 50, False), ("2026-11-23", 30, False)]
+    assert [(r["date"], r["minutes"], r["extracted"]) for r in sent] == [("2026-11-23", 30, False)]
 
 
 def test_record_morning_pages_rereads_header_after_page_is_edited(tmp_path, monkeypatch):
@@ -103,21 +103,23 @@ def test_record_morning_pages_rereads_header_after_page_is_edited(tmp_path, monk
     monkeypatch.setattr(daily_report, "make_record", lambda *a, **k: real_make_record(*a, cache_dir=str(cache), **k))
     sent = []
     monkeypatch.setattr(daily_report, "send_morning_pages", lambda records: sent.extend(records) or {})
-    monkeypatch.setattr(daily_report, "print_summary", lambda _result: None)
+    monkeypatch.setattr(daily_report, "print_summary", lambda *_a, **_k: None)
     opts = argparse.Namespace(model=None, no_sync=False)
 
-    write_page(base, day, "08:51 ~")
+    next_morning = day + datetime.timedelta(days=1)
+    write_page(base, next_morning, "08:51 ~")
     daily_report.record_morning_pages(day, str(base), opts)
-    write_page(base, day, "08:51 ~ 09:41")
+    write_page(base, next_morning, "08:51 ~ 09:41")
     daily_report.record_morning_pages(day, str(base), opts)
 
-    assert [r["minutes"] for r in sent if r["date"] == "2026-11-22"] == [30, 50]
+    assert [r["minutes"] for r in sent] == [30, 50]
 
 
 def test_record_morning_pages_skips_future_and_missing_pages_without_sync(tmp_path, monkeypatch):
     base = tmp_path / "pages"
     today = datetime.date.today()
     write_page(base, today, "08:00 ~ 08:20")
+    yesterday = today - datetime.timedelta(days=1)
     real_make_record = daily_report.make_record
     asked = []
 
@@ -129,7 +131,8 @@ def test_record_morning_pages_skips_future_and_missing_pages_without_sync(tmp_pa
     monkeypatch.setattr(daily_report, "send_morning_pages", lambda records: pytest.fail("--no-sync なのに送った"))
 
     daily_report.record_morning_pages(today, str(base), argparse.Namespace(model=None, no_sync=True))
+    daily_report.record_morning_pages(yesterday, str(base), argparse.Namespace(model=None, no_sync=True))
     daily_report.record_morning_pages(today - datetime.timedelta(days=5), str(base), argparse.Namespace(model=None, no_sync=True))
 
-    assert asked == [today, today - datetime.timedelta(days=5), today - datetime.timedelta(days=4)]
+    assert asked == [today, today - datetime.timedelta(days=4)]
     assert (tmp_path / "cache" / f"{today.isoformat()}.json").exists()

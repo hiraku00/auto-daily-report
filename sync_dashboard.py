@@ -6,15 +6,17 @@ from src.dashboard_sync import DashboardSyncError, delete_report, reparse_all, r
 from src.summary_generator import summary_files
 
 
-def print_summary(totals):
+def print_summary(totals, label=None, show_skipped=False):
+    """dashboard への送信結果を表示する。label を渡すと各行の頭に「[label → dashboard]」を付け、何を送った結果か分かるようにする。"""
+    prefix = f"[{label} → dashboard] " if label else ""
     for result in totals["results"]:
         status = result.get("status", "?")
-        if status == "skipped":
+        if status == "skipped" and not show_skipped:
             continue
         notes = result.get("error") or "、".join(result.get("warnings") or [])
         target = result.get("date") or f"{result.get('kind')} {result.get('periodStart')}"
-        print(f"  {target}: {status}" + (f"（{notes}）" if notes else ""))
-    print(f"作成 {totals['created']} / 更新 {totals['updated']} / 変更なし {totals['skipped']} / エラー {totals['errors']}")
+        print(f"{prefix or '  '}{target}: {status}" + (f"（{notes}）" if notes else ""))
+    print(f"{prefix}作成 {totals['created']} / 更新 {totals['updated']} / 変更なし {totals['skipped']} / エラー {totals['errors']}")
 
 
 def delete_dates(dates, *, dry_run=False):
