@@ -6,7 +6,7 @@ import sys
 from src.claude_runner import ClaudeError, run_claude
 from src.dashboard_sync import DashboardSyncError, send_morning_pages, send_reports
 from src.morning_page import DIR_ENV, load_morning_context, morning_page_dir
-from src.morning_pages import make_record, needs_extraction
+from src.morning_pages import make_record
 from src.reflection import append_reflection, build_reflection_prompt, extract_reflection
 from src.report_generator import ReportError, build_prompt, finish_report
 from src.summary_generator import due_periods
@@ -94,14 +94,14 @@ def save_and_sync(date, path, report, args):
 def record_morning_pages(date, base, args):
     """6節目に使う翌朝(D+1)のページの記録を作り、dashboard の「モーニングページ」画面へ送る。
     毎日実行すれば当日朝(D)のページは前日の日報で送り済みなので、1回の実行で送るのは翌朝の1枚だけにする。
-    ヘッダーだけの記録は Claude を使わないので毎回読み直す(あとで書き足したページの時間・文字数を反映する)。
+    ヘッダーは毎回読み直す(あとで書き足したページの時間・文字数・服装を反映する)。
     記録を作れなくても日報は保存済みなので、止めずに作り直す方法だけ示す。"""
     day = date + datetime.timedelta(days=1)
     if day > datetime.date.today():
         return
     retry = f"python morning_pages.py --date {day:%y%m%d}"
     try:
-        record = make_record(day, base, force=not needs_extraction(day), model=args.model)
+        record = make_record(day, base, model=args.model)
     except (ClaudeError, OSError) as e:
         print(f"モーニングページ {day.isoformat()}（翌朝）の記録を作れませんでした: {e}\n  作り直すには: {retry}")
         return
