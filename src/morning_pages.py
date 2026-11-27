@@ -25,7 +25,7 @@ MISSING_END_MINUTES = 30
 MAX_ITEMS = 16
 MAX_ITEM_CHARS = 400
 MAX_BODY_CHARS = 14000
-# 服装の欄の1段(「シャツ(Uniqlo U)」のような書いたままの値)の長さの上限
+# 服装の欄の品名・ブランドそれぞれの長さの上限
 MAX_OUTFIT_CHARS = 100
 OUTFIT_LAYERS = {"上": "top", "中": "middle", "下": "bottom"}
 
@@ -90,15 +90,19 @@ def parse_header(text):
 
 
 def parse_outfit(text):
-    """ヘッダーの表の「服装」を、上・中・下の段ごとに書いたままの値で読む。
-    欄は `上:シャツ(Uniqlo U)<br>中:Tシャツ(WhitesVille)<br>下:デニム(白)` の形(コロンは全角でもよい)。
-    括弧の中はブランドのことも色のこともあるので分けない。欄・段が無ければ空文字。"""
-    outfit = {"top": "", "middle": "", "bottom": ""}
+    """ヘッダーの表の「服装」を、上・中・下の段ごとに品名とブランドに分けて読む。
+    欄は `上:ストライプシャツ (UNIQLO)<br>中:Tシャツ (WHITESVILLE)<br>下:白デニム (UNIQLO)` の形(コロン・括弧は全角でもよい)。
+    末尾の括弧の中をブランドとし、括弧が無ければブランドは空。欄・段が無ければどちらも空文字。"""
+    outfit = {layer: {"item": "", "brand": ""} for layer in OUTFIT_LAYERS.values()}
     cell = re.search(r"\|\s*服装\s*\|([^|\n]*)", text)
     for part in re.split(r"<br\s*/?>", cell.group(1)) if cell else []:
         match = re.match(r"\s*([上中下])\s*[:：]\s*(.*?)\s*$", part)
-        if match and match.group(2):
-            outfit[OUTFIT_LAYERS[match.group(1)]] = match.group(2)[:MAX_OUTFIT_CHARS]
+        if not match or not match.group(2):
+            continue
+        value = match.group(2)
+        branded = re.fullmatch(r"(.*?)\s*[(（]\s*([^()（）]*?)\s*[)）]", value)
+        item, brand = (branded.group(1), branded.group(2)) if branded else (value, "")
+        outfit[OUTFIT_LAYERS[match.group(1)]] = {"item": item[:MAX_OUTFIT_CHARS], "brand": brand[:MAX_OUTFIT_CHARS]}
     return outfit
 
 
