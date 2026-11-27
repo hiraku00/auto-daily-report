@@ -84,6 +84,40 @@ def test_only_pages_before_the_daily_reports_are_extracted():
     assert mp.needs_extraction(D(2026, 3, 1), extract_all=True)
 
 
+EMPTY_LAYER = {"item": "", "brand": ""}
+
+
+def test_outfit_splits_each_layer_into_item_and_brand():
+    page = "| 場所 | Sky Lounge2 |\n| 服装 | 上:ストライプシャツ (UNIQLO)<br>中:Tシャツ (WHITESVILLE)<br>下:白デニム (UNIQLO) |\n| 文字数 | |\n"
+    assert mp.parse_outfit(page) == {
+        "top": {"item": "ストライプシャツ", "brand": "UNIQLO"},
+        "middle": {"item": "Tシャツ", "brand": "WHITESVILLE"},
+        "bottom": {"item": "白デニム", "brand": "UNIQLO"},
+    }
+    # 全角のコロン・括弧、括弧の無い値、順不同、欠けた段・空の段
+    assert mp.parse_outfit("|服装|下：短パン<br/>上: Tシャツ（Uniqlo U）<br>中:|") == {
+        "top": {"item": "Tシャツ", "brand": "Uniqlo U"}, "middle": EMPTY_LAYER, "bottom": {"item": "短パン", "brand": ""},
+    }
+    assert mp.parse_outfit(OLD_PAGE) == {"top": EMPTY_LAYER, "middle": EMPTY_LAYER, "bottom": EMPTY_LAYER}
+    assert mp.parse_outfit("|服装|上:" + "あ" * 150 + "|")["top"]["item"] == "あ" * mp.MAX_OUTFIT_CHARS
+
+
+def test_make_record_rereads_the_header_but_keeps_the_extraction(tmp_path, monkeypatch):
+    base, cache = tmp_path / "pages", str(tmp_path / "cache")
+    write_page(base, D(2024, 4, 15), OLD_PAGE, month="Apr")
+    monkeypatch.setattr(mp, "run_claude", lambda prompt, model=None: "### 今日の予定\n- 洗濯物を干す\n")
+    assert mp.make_record(D(2024, 4, 15), str(base), cache_dir=cache)["outfit"]["top"] == EMPTY_LAYER
+    write_page(base, D(2024, 4, 15), OLD_PAGE.replace("|文字数||", "|服装|上:シャツ (UNIQLO)|\n|文字数||"), month="Apr")
+    monkeypatch.setattr(mp, "run_claude", lambda prompt, model=None: pytest.fail("取り出し済みなので呼ばない"))
+    record = mp.make_record(D(2024, 4, 15), str(base), cache_dir=cache)
+    assert record["outfit"]["top"] == {"item": "シャツ", "brand": "UNIQLO"} and record["plan"] == ["洗濯物を干す"]
+    # ヘッダーだけの記録も、ページを書き足せば読み直す
+    write_page(base, D(2026, 2, 3), "|時間|8:00 ~ 8:30|\n")
+    assert mp.make_record(D(2026, 2, 3), str(base), cache_dir=cache)["outfit"]["bottom"] == EMPTY_LAYER
+    write_page(base, D(2026, 2, 3), "|時間|8:00 ~ 8:30|\n|服装|下:白デニム (UNIQLO)|\n")
+    assert mp.make_record(D(2026, 2, 3), str(base), cache_dir=cache)["outfit"]["bottom"] == {"item": "白デニム", "brand": "UNIQLO"}
+
+
 def test_make_record_extracts_once_and_reuses_the_saved_result(tmp_path, monkeypatch):
     base, cache = tmp_path / "pages", str(tmp_path / "cache")
     write_page(base, D(2024, 4, 15), OLD_PAGE, month="Apr")
@@ -92,7 +126,7 @@ def test_make_record_extracts_once_and_reuses_the_saved_result(tmp_path, monkeyp
 
     record = mp.make_record(D(2024, 4, 15), str(base), cache_dir=cache)
     assert record == {"date": "2024-04-15", "startedAt": "09:53", "endedAt": "10:31", "minutes": 38, "place": "自宅（槻木）", "chars": mp.count_chars(OLD_PAGE),
-                      "yesterday": ["帰宅した"], "plan": ["洗濯物を干す"], "notes": [], "extracted": True}
+                      "outfit": {"top": EMPTY_LAYER, "middle": EMPTY_LAYER, "bottom": EMPTY_LAYER}, "yesterday": ["帰宅した"], "plan": ["洗濯物を干す"], "notes": [], "extracted": True}
     assert len(calls) == 1 and "example.com" not in calls[0]
 
     assert mp.make_record(D(2024, 4, 15), str(base), cache_dir=cache) == record

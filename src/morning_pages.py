@@ -1,6 +1,6 @@
 """モーニングページ1枚ごとの記録を作る(日報とは別の入れ物。dashboard の「モーニングページ」画面用)。
 
-- ヘッダーの表(時間・場所)は Claude を使わずに読む。文字数は本文から数える(ヘッダーの「文字数」は3割のページにしか無いため)。
+- ヘッダーの表(時間・場所・服装)は Claude を使わずに読む。文字数は本文から数える(ヘッダーの「文字数」は3割のページにしか無いため)。
 - 作業日報(画面記録)の無い期間(DAILY_REPORT_START より前)は、そのページに書かれた「昨日のこと・今日の予定・気になったこと」を
   Claude で取り出す。日報のある期間は、予定と実績を日報の6節目で読めるので、ヘッダーだけにする。
 - 本文そのものは送らない。取り出した短い箇条書きとヘッダーの値だけを送る。
@@ -25,6 +25,9 @@ MISSING_END_MINUTES = 30
 MAX_ITEMS = 16
 MAX_ITEM_CHARS = 400
 MAX_BODY_CHARS = 14000
+# 服装の欄の品名・ブランドそれぞれの長さの上限
+MAX_OUTFIT_CHARS = 100
+OUTFIT_LAYERS = {"上": "top", "中": "middle", "下": "bottom"}
 
 EXTRACT_PROMPT = """あなたは、本人が朝に書いた（話した）モーニングページ1枚から、書かれていることを整理するアシスタントです。
 出力は次の3つの小見出しだけ。前置き・説明・コードブロックは書かない。日本語で、書かれていないことを推測で足さない。
@@ -86,6 +89,23 @@ def parse_header(text):
     return started, ended, minutes, place.group(1).strip() if place else ""
 
 
+def parse_outfit(text):
+    """ヘッダーの表の「服装」を、上・中・下の段ごとに品名とブランドに分けて読む。
+    欄は `上:ストライプシャツ (UNIQLO)<br>中:Tシャツ (WHITESVILLE)<br>下:白デニム (UNIQLO)` の形(コロン・括弧は全角でもよい)。
+    末尾の括弧の中をブランドとし、括弧が無ければブランドは空。欄・段が無ければどちらも空文字。"""
+    outfit = {layer: {"item": "", "brand": ""} for layer in OUTFIT_LAYERS.values()}
+    cell = re.search(r"\|\s*服装\s*\|([^|\n]*)", text)
+    for part in re.split(r"<br\s*/?>", cell.group(1)) if cell else []:
+        match = re.match(r"\s*([上中下])\s*[:：]\s*(.*?)\s*$", part)
+        if not match or not match.group(2):
+            continue
+        value = match.group(2)
+        branded = re.fullmatch(r"(.*?)\s*[(（]\s*([^()（）]*?)\s*[)）]", value)
+        item, brand = (branded.group(1), branded.group(2)) if branded else (value, "")
+        outfit[OUTFIT_LAYERS[match.group(1)]] = {"item": item[:MAX_OUTFIT_CHARS], "brand": brand[:MAX_OUTFIT_CHARS]}
+    return outfit
+
+
 def count_chars(text):
     """本文(URL だけの行を除く)の、空白を除いた文字数。本文が無ければ None。"""
     body = page_body(text, limit=10**7)
@@ -123,7 +143,7 @@ def build_record(date, text, extraction=None):
     started, ended, minutes, place = parse_header(text)
     record = {
         "date": date.isoformat(), "startedAt": started, "endedAt": ended, "minutes": minutes, "place": place,
-        "chars": count_chars(text),
+        "chars": count_chars(text), "outfit": parse_outfit(text),
         "yesterday": [], "plan": [], "notes": [], "extracted": extraction is not None,
     }
     if extraction is not None:
@@ -155,16 +175,21 @@ def needs_extraction(date, header_only=False, extract_all=False):
 
 
 def make_record(date, base_dir, *, header_only=False, extract_all=False, force=False, model=None, cache_dir=CACHE_DIR):
-    """1ページ分の記録を作る(キャッシュがあれば、取り出しをやり直さない)。ページが無ければ None。"""
+    """1ページ分の記録を作る(取り出し済みのキャッシュがあれば、取り出しはやり直さない)。ページが無ければ None。"""
     path = page_path(base_dir, date)
     if not os.path.exists(path):
         return None
     want = needs_extraction(date, header_only, extract_all)
     cached = load_cached(date, cache_dir)
-    if cached and not force and (cached["extracted"] or not want):
-        return cached
     with open(path, encoding="utf-8") as f:
         text = f.read()
-    record = build_record(date, text, extract_page(date, text, model=model) if want else None)
+    if cached and not force and cached["extracted"]:
+        # 取り出し(Claude)の結果だけを使い回し、ヘッダーは毎回読み直す(あとで足した服装などを反映する)
+        extraction = {key: cached[key] for key in ("yesterday", "plan", "notes")}
+    elif want:
+        extraction = extract_page(date, text, model=model)
+    else:
+        extraction = None
+    record = build_record(date, text, extraction)
     save_cached(record, cache_dir)
     return record
