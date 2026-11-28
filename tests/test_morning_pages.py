@@ -98,6 +98,12 @@ def test_outfit_splits_each_layer_into_item_and_brand():
     assert mp.parse_outfit("|服装|下：短パン<br/>上: Tシャツ（Uniqlo U）<br>中:|") == {
         "top": {"item": "Tシャツ", "brand": "Uniqlo U"}, "middle": EMPTY_LAYER, "bottom": {"item": "短パン", "brand": ""},
     }
+    # 着ていない段: 「-」だけ・空欄・空の括弧は、書かなかった段と同じく空
+    for middle in ["中:- (-)", "中:- ()", "中:－（ー）", "中:-", "中:", "中: ( )", "中:（）"]:
+        outfit = mp.parse_outfit(f"| 服装 | 上:白シャツ (MB)<br>{middle}<br>下:カーゴショーツ (UNIQLO) |")
+        assert outfit == {"top": {"item": "白シャツ", "brand": "MB"}, "middle": EMPTY_LAYER, "bottom": {"item": "カーゴショーツ", "brand": "UNIQLO"}}, middle
+    # 品名の中のハイフンは消さない
+    assert mp.parse_outfit("|服装|上:T-シャツ (-)|")["top"] == {"item": "T-シャツ", "brand": ""}
     assert mp.parse_outfit(OLD_PAGE) == {"top": EMPTY_LAYER, "middle": EMPTY_LAYER, "bottom": EMPTY_LAYER}
     assert mp.parse_outfit("|服装|上:" + "あ" * 150 + "|")["top"]["item"] == "あ" * mp.MAX_OUTFIT_CHARS
 

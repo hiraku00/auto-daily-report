@@ -28,6 +28,8 @@ MAX_BODY_CHARS = 14000
 # 服装の欄の品名・ブランドそれぞれの長さの上限
 MAX_OUTFIT_CHARS = 100
 OUTFIT_LAYERS = {"上": "top", "中": "middle", "下": "bottom"}
+# 「中:- (-)」のように、着ていない段を埋める記号だけの値(半角・全角のハイフン、長音、ダッシュ)
+OUTFIT_BLANK_RE = re.compile(r"[-－ー―‐–—]*")
 
 EXTRACT_PROMPT = """あなたは、本人が朝に書いた（話した）モーニングページ1枚から、書かれていることを整理するアシスタントです。
 出力は次の3つの小見出しだけ。前置き・説明・コードブロックは書かない。日本語で、書かれていないことを推測で足さない。
@@ -92,7 +94,8 @@ def parse_header(text):
 def parse_outfit(text):
     """ヘッダーの表の「服装」を、上・中・下の段ごとに品名とブランドに分けて読む。
     欄は `上:ストライプシャツ (UNIQLO)<br>中:Tシャツ (WHITESVILLE)<br>下:白デニム (UNIQLO)` の形(コロン・括弧は全角でもよい)。
-    末尾の括弧の中をブランドとし、括弧が無ければブランドは空。欄・段が無ければどちらも空文字。"""
+    末尾の括弧の中をブランドとし、括弧が無ければブランドは空。欄・段が無ければどちらも空文字。
+    「中:- (-)」「中:- ()」のように「-」だけの品名・ブランドも空にする(着ていない段。空欄と同じ扱い)。"""
     outfit = {layer: {"item": "", "brand": ""} for layer in OUTFIT_LAYERS.values()}
     cell = re.search(r"\|\s*服装\s*\|([^|\n]*)", text)
     for part in re.split(r"<br\s*/?>", cell.group(1)) if cell else []:
@@ -101,9 +104,15 @@ def parse_outfit(text):
             continue
         value = match.group(2)
         branded = re.fullmatch(r"(.*?)\s*[(（]\s*([^()（）]*?)\s*[)）]", value)
-        item, brand = (branded.group(1), branded.group(2)) if branded else (value, "")
+        item, brand = (_outfit_text(branded.group(1)), _outfit_text(branded.group(2))) if branded else (_outfit_text(value), "")
         outfit[OUTFIT_LAYERS[match.group(1)]] = {"item": item[:MAX_OUTFIT_CHARS], "brand": brand[:MAX_OUTFIT_CHARS]}
     return outfit
+
+
+def _outfit_text(value):
+    """服装の品名・ブランドの1つ。「-」だけなら空文字"""
+    value = value.strip()
+    return "" if OUTFIT_BLANK_RE.fullmatch(value) else value
 
 
 def count_chars(text):
